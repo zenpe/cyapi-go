@@ -1,0 +1,14 @@
+/data/
+/backups/
+/bin/
+/dist/
+/.tools/
+/.cache/
+/config.yaml
+/sources.yaml
+.env
+*.db
+*.db-wal
+*.db-shm
+*.exe
+coverage.out

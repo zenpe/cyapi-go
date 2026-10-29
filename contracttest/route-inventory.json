@@ -1,0 +1,750 @@
+[
+  {
+    "method": "GET",
+    "path": "/accounts/bindings",
+    "source": "src/routes/accounts.ts:5",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/accounts/netease/unbind",
+    "source": "src/routes/accounts.ts:21",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/accounts/kugou/unbind",
+    "source": "src/routes/accounts.ts:25",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/auth/registration-status",
+    "source": "src/routes/auth.ts:192",
+    "status": "implemented"
+  },
+  {
+    "method": "GET",
+    "path": "/auth/linuxdo-status",
+    "source": "src/routes/auth.ts:193",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/linuxdo/login",
+    "source": "src/routes/auth.ts:194",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/qr-login/create",
+    "source": "src/routes/auth.ts:196",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/auth/qr-login/poll",
+    "source": "src/routes/auth.ts:230",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/qr-login/scan",
+    "source": "src/routes/auth.ts:297",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/qr-login/confirm",
+    "source": "src/routes/auth.ts:350",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/qr-login/cancel",
+    "source": "src/routes/auth.ts:403",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/register/send-code",
+    "source": "src/routes/auth.ts:433",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/register",
+    "source": "src/routes/auth.ts:481",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/login",
+    "source": "src/routes/auth.ts:521",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/reset-password/send-code",
+    "source": "src/routes/auth.ts:587",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/reset-password",
+    "source": "src/routes/auth.ts:623",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/update-location",
+    "source": "src/routes/auth.ts:647",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/auth/validate-token",
+    "source": "src/routes/auth.ts:668",
+    "status": "implemented"
+  },
+  {
+    "method": "POST",
+    "path": "/auth/update-username",
+    "source": "src/routes/auth.ts:689",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/ranking",
+    "source": "src/routes/bili.ts:24",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/cid",
+    "source": "src/routes/bili.ts:34",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/playurl",
+    "source": "src/routes/bili.ts:45",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/pgc_season",
+    "source": "src/routes/bili.ts:61",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/pgc_playurl",
+    "source": "src/routes/bili.ts:72",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/danmaku",
+    "source": "src/routes/bili.ts:91",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/search",
+    "source": "src/routes/bili.ts:103",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/comments",
+    "source": "src/routes/bili.ts:114",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/bili/proxy",
+    "source": "src/routes/bili.ts:125",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/mpd/:name",
+    "source": "src/routes/bili.ts:137",
+    "status": "excluded"
+  },
+  {
+    "method": "GET",
+    "path": "/version/latest",
+    "source": "src/routes/compat.ts:18",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/toplists",
+    "source": "src/routes/compat.ts:30",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/playlist",
+    "source": "src/routes/compat.ts:41",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/album",
+    "source": "src/routes/compat.ts:62",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/netease/top/playlist",
+    "source": "src/routes/compat.ts:80",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/netease/playlist/highquality/tags",
+    "source": "src/routes/compat.ts:103",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/login/qr/key",
+    "source": "src/routes/compat.ts:114",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/login/qr/create",
+    "source": "src/routes/compat.ts:118",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/login/qr/check",
+    "source": "src/routes/compat.ts:122",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/login/qr/key",
+    "source": "src/routes/compat.ts:124",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/login/qr/check",
+    "source": "src/routes/compat.ts:128",
+    "status": "deferred",
+    "reason": "扫码登录首期不实现"
+  },
+  {
+    "method": "GET",
+    "path": "/recommend/songs",
+    "source": "src/routes/compat.ts:130",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/recommend/resource",
+    "source": "src/routes/compat.ts:131",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/recommend/for_you",
+    "source": "src/routes/compat.ts:132",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/personal_fm",
+    "source": "src/routes/compat.ts:143",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/fm_trash",
+    "source": "src/routes/compat.ts:144",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/personalized",
+    "source": "src/routes/compat.ts:145",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/personalized/newsong",
+    "source": "src/routes/compat.ts:146",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/netease/user/playlists",
+    "source": "src/routes/compat.ts:147",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/artist/search",
+    "source": "src/routes/compat.ts:149",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/artist/detail",
+    "source": "src/routes/compat.ts:163",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/artist/desc",
+    "source": "src/routes/compat.ts:164",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/song/wiki/summary",
+    "source": "src/routes/compat.ts:165",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/song/music/detail/get",
+    "source": "src/routes/compat.ts:166",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/qq/playlist",
+    "source": "src/routes/compat.ts:168",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kuwo/search",
+    "source": "src/routes/compat.ts:180",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kuwo/song",
+    "source": "src/routes/compat.ts:181",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kuwo/playlist",
+    "source": "src/routes/compat.ts:182",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/user/playlists",
+    "source": "src/routes/compat.ts:183",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/playlist/tracks",
+    "source": "src/routes/compat.ts:184",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/lyrics/kuwo",
+    "source": "src/routes/compat.ts:186",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/apple/search",
+    "source": "src/routes/compat.ts:188",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/apple/playlist",
+    "source": "src/routes/compat.ts:189",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/apple/song",
+    "source": "src/routes/compat.ts:190",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/apple/stream",
+    "source": "src/routes/compat.ts:203",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/config/public",
+    "source": "src/routes/compat.ts:205",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/info",
+    "source": "src/routes/compat.ts:212",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/ip-location",
+    "source": "src/routes/compat.ts:214",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/ip-location/query",
+    "source": "src/routes/compat.ts:222",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/weather",
+    "source": "src/routes/compat.ts:231",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/music-taste/generate",
+    "source": "src/routes/compat.ts:233",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/music-taste/generate-sync",
+    "source": "src/routes/compat.ts:236",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/audio-proxy/stream",
+    "source": "src/routes/compat.ts:238",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/audio/proxy",
+    "source": "src/routes/compat.ts:239",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/url/:source/:songId/:quality",
+    "source": "src/routes/compat.ts:240",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/v1/parse",
+    "source": "src/routes/compat.ts:241",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/pay/create",
+    "source": "src/routes/compat.ts:243",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/pay/query",
+    "source": "src/routes/compat.ts:253",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/sponsors/create",
+    "source": "src/routes/compat.ts:264",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/sponsors/status/:userId",
+    "source": "src/routes/compat.ts:285",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/sponsors/list",
+    "source": "src/routes/compat.ts:310",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/home/charts",
+    "source": "src/routes/content.ts:38",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/discover/playlists",
+    "source": "src/routes/content.ts:53",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/v1/discover/tags",
+    "source": "src/routes/content.ts:81",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/douyin",
+    "source": "src/routes/douyin.ts:6",
+    "status": "excluded"
+  },
+  {
+    "method": "POST",
+    "path": "/favorites",
+    "source": "src/routes/favorites.ts:7",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/favorites",
+    "source": "src/routes/favorites.ts:24",
+    "status": "pending"
+  },
+  {
+    "method": "DELETE",
+    "path": "/favorites/:trackId/:source",
+    "source": "src/routes/favorites.ts:45",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "source": "src/routes/health.ts:6",
+    "status": "implemented"
+  },
+  {
+    "method": "GET",
+    "path": "/lx/sources",
+    "source": "src/routes/lx.ts:21",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/lx/script",
+    "source": "src/routes/lx.ts:62",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/lyrics/netease",
+    "source": "src/routes/lyrics.ts:52",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/lyrics/qq",
+    "source": "src/routes/lyrics.ts:58",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/lyrics/kugou",
+    "source": "src/routes/lyrics.ts:64",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/search",
+    "source": "src/routes/music.ts:10",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/song",
+    "source": "src/routes/music.ts:25",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/qq/search",
+    "source": "src/routes/music.ts:50",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/qq/song",
+    "source": "src/routes/music.ts:65",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/search",
+    "source": "src/routes/music.ts:77",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/kugou/song",
+    "source": "src/routes/music.ts:92",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playback/save",
+    "source": "src/routes/playback.ts:10",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/playback/last",
+    "source": "src/routes/playback.ts:52",
+    "status": "pending"
+  },
+  {
+    "method": "DELETE",
+    "path": "/playback/clear",
+    "source": "src/routes/playback.ts:77",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/playlists",
+    "source": "src/routes/playlists_v2.ts:459",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/playlists/check-track",
+    "source": "src/routes/playlists_v2.ts:475",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists",
+    "source": "src/routes/playlists_v2.ts:498",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/follow",
+    "source": "src/routes/playlists_v2.ts:517",
+    "status": "pending"
+  },
+  {
+    "method": "PUT",
+    "path": "/playlists/:playlistId",
+    "source": "src/routes/playlists_v2.ts:563",
+    "status": "pending"
+  },
+  {
+    "method": "DELETE",
+    "path": "/playlists/:playlistId",
+    "source": "src/routes/playlists_v2.ts:597",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/delete",
+    "source": "src/routes/playlists_v2.ts:598",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/playlists/:playlistId/tracks",
+    "source": "src/routes/playlists_v2.ts:600",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/tracks",
+    "source": "src/routes/playlists_v2.ts:644",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/tracks/batch",
+    "source": "src/routes/playlists_v2.ts:695",
+    "status": "pending"
+  },
+  {
+    "method": "DELETE",
+    "path": "/playlists/:playlistId/items/:itemId",
+    "source": "src/routes/playlists_v2.ts:766",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/items/batch-remove",
+    "source": "src/routes/playlists_v2.ts:796",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/items/:itemId/replace",
+    "source": "src/routes/playlists_v2.ts:829",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/items/reorder",
+    "source": "src/routes/playlists_v2.ts:885",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/sync",
+    "source": "src/routes/playlists_v2.ts:936",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/playlists/:playlistId/copy",
+    "source": "src/routes/playlists_v2.ts:974",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/stats/listening-time",
+    "source": "src/routes/stats.ts:15",
+    "status": "pending"
+  },
+  {
+    "method": "POST",
+    "path": "/stats/play-count",
+    "source": "src/routes/stats.ts:29",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/stats",
+    "source": "src/routes/stats.ts:50",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/stats/records",
+    "source": "src/routes/stats.ts:73",
+    "status": "pending"
+  },
+  {
+    "method": "GET",
+    "path": "/stats/song-memory",
+    "source": "src/routes/stats.ts:89",
+    "status": "pending"
+  }
+]

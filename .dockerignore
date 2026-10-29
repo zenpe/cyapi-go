@@ -1,0 +1,12 @@
+.git
+.env
+config.yaml
+sources.yaml
+data
+backups
+bin
+dist
+.tools
+.cache
+*.db
+*.exe

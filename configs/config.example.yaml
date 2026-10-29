@@ -1,0 +1,33 @@
+server:
+  listen: "127.0.0.1:8080"
+  public_base_url: "http://localhost:8080"
+  trusted_proxies: []
+  cors_allowed_origins: []
+  shutdown_grace: "30s"
+database:
+  driver: "sqlite"
+  dsn: "data/cyapi.db"
+  dsn_env: ""
+  busy_timeout: "5s"
+auth:
+  secret_env: "CYAPI_AUTH_SECRET"
+  token_max_age: "720h"
+cache:
+  max_bytes: 16777216
+  max_entries: 2000
+  max_item_bytes: 1048576
+sources:
+  directory: "data/sources"
+  manifest_file: "sources.yaml"
+  github_token_env: "GITHUB_TOKEN"
+  allow_empty: false
+mail:
+  app_name: "CyreneMusic"
+  sender_name: "CyreneMusic"
+  provider: "brevo"
+  api_key_env: "BREVO_API_KEY"
+  sender_email: ""
+providers:
+  netease_cookie_env: "NETEASE_COOKIE"
+  qq_cookie_env: "QQ_COOKIE"
+  kugou_cookie_env: "KUGOU_COOKIE"

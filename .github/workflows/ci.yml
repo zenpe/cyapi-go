@@ -1,0 +1,34 @@
+name: Go CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: cyapi_test
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: cyapi_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cyapi_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CYAPI_TEST_POSTGRES_DSN: postgres://cyapi_test:test-only-password@127.0.0.1:5432/cyapi_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -race ./... -count=1
+      - name: Pure Go Linux builds
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/cyapi-linux-amd64 ./cmd/cyapi
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/cyapi-linux-arm64 ./cmd/cyapi
