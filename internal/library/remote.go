@@ -119,8 +119,14 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 			failure = Fail(422, "SOURCE_SNAPSHOT_INCOMPLETE", "来源歌单名称无效")
 		}
 	}
-	// Persist cancellation/failure with a short independent deadline; never leave a live lease after a disconnected client.
-	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	// Successful snapshot writes share the request's remaining budget. Only failure
+	// cleanup detaches from cancellation; a 10000-track publish must not inherit
+	// the short failure-cleanup deadline (especially under race instrumentation).
+	finishParent, finishBudget := ctx, 20*time.Second
+	if failure != nil {
+		finishParent, finishBudget = context.WithoutCancel(ctx), 5*time.Second
+	}
+	finishCtx, finishCancel := context.WithTimeout(finishParent, finishBudget)
 	defer finishCancel()
 	return s.remote.FinishRemote(finishCtx, user, ticket, snapshot, failure)
 }

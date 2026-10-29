@@ -106,7 +106,9 @@ func (d *Database) Migrate(ctx context.Context) error {
 	defer conn.Close()
 	if d.Driver == "sqlite" {
 		var mode string
-		if err = conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode); err != nil {
+		if err = retryMigrationLock(ctx, func(wait context.Context) error {
+			return conn.QueryRowContext(wait, "PRAGMA journal_mode=WAL").Scan(&mode)
+		}); err != nil {
 			return err
 		}
 		if strings.ToLower(mode) != "wal" {
@@ -117,7 +119,13 @@ func (d *Database) Migrate(ctx context.Context) error {
 	if d.Driver == "sqlite" {
 		begin = "BEGIN IMMEDIATE"
 	}
-	if _, err = conn.ExecContext(ctx, begin); err != nil {
+	beginTransaction := func(wait context.Context) error { _, e := conn.ExecContext(wait, begin); return e }
+	if d.Driver == "sqlite" {
+		err = retryMigrationLock(ctx, beginTransaction)
+	} else {
+		err = beginTransaction(ctx)
+	}
+	if err != nil {
 		return err
 	}
 	defer func() {
@@ -184,4 +192,32 @@ func (d *Database) Migrate(ctx context.Context) error {
 	}
 	_, err = conn.ExecContext(ctx, "COMMIT")
 	return err
+}
+
+// Only pre-transaction SQLite lock acquisition is retried. The migration body is
+// never replayed. A low request busy_timeout must not make concurrent installers
+// fail immediately; both the caller deadline and a five-second cap apply.
+func retryMigrationLock(ctx context.Context, work func(context.Context) error) error {
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		if err := wait.Err(); err != nil {
+			return err
+		}
+		err := work(wait)
+		if err == nil {
+			return nil
+		}
+		var code interface{ Code() int }
+		if !errors.As(err, &code) || (code.Code()&255 != 5 && code.Code()&255 != 6) {
+			return err
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-wait.Done():
+			timer.Stop()
+			return wait.Err()
+		case <-timer.C:
+		}
+	}
 }

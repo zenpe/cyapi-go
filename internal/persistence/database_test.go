@@ -260,3 +260,35 @@ func TestMigrationDDLFailureRollsBack(t *testing.T) {
 		t.Fatal("failed migration recorded", count, err)
 	}
 }
+
+func TestMigrationLockWaitHonorsCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	a, b := testDB(t, "sqlite", path), testDB(t, "sqlite", path)
+	if err := a.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := a.SQL.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.ExecContext(context.Background(), "ROLLBACK")
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	began := time.Now()
+	if err = b.Migrate(ctx); err == nil {
+		t.Fatal("migration ignored another writer")
+	}
+	if time.Since(began) > 2*time.Second {
+		t.Fatal("migration ignored caller deadline")
+	}
+	if _, err = conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	if err = b.CheckSchema(context.Background()); err != nil {
+		t.Fatal("failed lock acquisition changed schema", err)
+	}
+}
