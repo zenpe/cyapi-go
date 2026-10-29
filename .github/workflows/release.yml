@@ -102,10 +102,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: release-${{ needs.resolve.outputs.tag }}
           path: release
+      - name: Test resumable publication
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -114,32 +120,4 @@ jobs:
           RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
           KEEP_DRAFT: ${{ needs.resolve.outputs.draft }}
           PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release
-          sha256sum -c SHA256SUMS
-          # Resolve once more before publishing in case a tag moved during the build.
-          actual_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
-          if [[ "$actual_sha" != "$RELEASE_SHA" ]]; then
-            echo 'Release tag changed during the build; refusing to publish.' >&2
-            exit 1
-          fi
-          if gh release view "$RELEASE_TAG" --json isDraft > existing.json 2>/dev/null; then
-            if [[ "$(jq -r .isDraft existing.json)" != true ]]; then
-              echo 'A published release already exists; it will not be overwritten.' >&2
-              exit 1
-            fi
-          else
-            gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_SHA" \
-              --title "$RELEASE_TAG" --generate-notes --draft
-          fi
-          # Retry uploads only while the release remains a draft.
-          gh release upload "$RELEASE_TAG" --clobber \
-            cyapi-linux-amd64 cyapi-linux-arm64 cyapi-windows-amd64.exe \
-            cyapi-nas-linux-amd64.tar.gz cyapi-nas-linux-arm64.tar.gz \
-            cyapi-windows-amd64.zip SHA256SUMS
-          gh release edit "$RELEASE_TAG" --prerelease="$PRERELEASE"
-          if [[ "$KEEP_DRAFT" != true ]]; then
-            gh release edit "$RELEASE_TAG" --draft=false
-          fi
+        run: python3 scripts/publish_release.py release

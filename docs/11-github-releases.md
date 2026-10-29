@@ -41,6 +41,6 @@ sudo ./cyapi install --public-url https://api.example.com
 
 工作流默认仅 contents:read，只有上传发行资产的 publish job 使用 contents:write；依赖内置 GITHUB_TOKEN，不需要配置 PAT。测试/构建 job 不具备发行写权限。若组织策略禁止 GitHub Actions 创建 Release，需仓库管理员调整策略；不要将个人 token 写入仓库作为绕过。
 
-资产先上传到草稿，全部上传成功才转为正式 Release，避免公开半套文件。相同标签并发运行串行处理；失败后可重跑，已有草稿允许重新上传，已经正式发布的 Release 拒绝覆盖。发布前再次确认标签仍指向构建时的 commit。不要移动已发布版本标签，应发布新版本。
+资产先上传到草稿，全部上传成功才转为正式 Release，避免公开半套文件。相同标签并发运行串行处理；失败后可重跑；对于已存在的草稿或正式 Release，逐个核对已有文件 SHA256，仅补齐缺失文件，相同文件跳过，不同内容明确报错且不覆盖。支持先在网页创建只有源码的 Release，再由工作流补齐程序。已有正式 Release 的标题、说明和公开状态保持不变。发布前再次确认标签仍指向构建时的 commit。不要移动已发布版本标签，应发布新版本。
 
 本地构建脚本会将未提交工作树标记为 +working。CI 从标签对应的干净 commit 构建，不附加该标记。发行不启用自动下载更新、Docker 镜像发布或自动修改 NAS 服务。
