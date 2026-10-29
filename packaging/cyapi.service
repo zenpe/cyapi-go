@@ -1,0 +1,21 @@
+[Unit]
+Description=Cyapi music API
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=cyapi
+Group=cyapi
+ExecStart=/opt/cyapi/cyapi serve --config /etc/cyapi/config.yaml
+EnvironmentFile=/etc/cyapi/secrets.env
+WorkingDirectory=/var/lib/cyapi
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/cyapi
+[Install]
+WantedBy=multi-user.target

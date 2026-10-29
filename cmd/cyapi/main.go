@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"cyapi-go/internal/auth"
+	"cyapi-go/internal/backup"
+	"cyapi-go/internal/compat"
 	"cyapi-go/internal/config"
 	"cyapi-go/internal/library"
 	"cyapi-go/internal/mail"
@@ -23,9 +25,14 @@ import (
 	"cyapi-go/internal/persistence"
 	"cyapi-go/internal/persistence/authstore"
 	"cyapi-go/internal/persistence/librarystore"
+	"cyapi-go/internal/persistence/userstatestore"
+	"cyapi-go/internal/providers/kugou"
 	"cyapi-go/internal/providers/netease"
+	"cyapi-go/internal/providers/platformhttp"
+	"cyapi-go/internal/providers/qq"
 	"cyapi-go/internal/server"
 	"cyapi-go/internal/sources"
+	"cyapi-go/internal/userstate"
 )
 
 var version = "dev"
@@ -40,7 +47,7 @@ func main() {
 }
 func run(args []string, log *slog.Logger) error {
 	if len(args) == 0 {
-		return errors.New("usage: cyapi <serve|migrate|schema-status|sync-sources|sources|version> [--config path]")
+		return errors.New("usage: cyapi <serve|migrate|schema-status|backup|sync-sources|sources|version> [--config path]")
 	}
 	command := args[0]
 	if command == "version" {
@@ -50,8 +57,8 @@ func run(args []string, log *slog.Logger) error {
 		fmt.Printf("cyapi %s commit=%s go=%s %s/%s\n", version, commit, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 		return nil
 	}
-	if command != "serve" && command != "migrate" && command != "schema-status" && command != "sync-sources" && command != "sources" {
-		return errors.New("unknown command; implemented commands: serve, migrate, schema-status, sync-sources, sources, version")
+	if command != "serve" && command != "migrate" && command != "schema-status" && command != "sync-sources" && command != "sources" && command != "backup" {
+		return errors.New("unknown command; implemented commands: serve, migrate, schema-status, sync-sources, sources, backup, version")
 	}
 	sourceAction := ""
 	if command == "sources" {
@@ -64,6 +71,10 @@ func run(args []string, log *slog.Logger) error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	var force, dry *bool
 	var generation *string
+	var backupOutput *string
+	if command == "backup" {
+		backupOutput = flags.String("output", "", "new backup directory")
+	}
 	if command == "sync-sources" {
 		force = flags.Bool("force", false, "publish even when unchanged")
 		dry = flags.Bool("dry-run", false, "download and validate without publishing")
@@ -146,6 +157,19 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if command == "backup" {
+		manager, e := sourceManager(c)
+		if e != nil {
+			return e
+		}
+		work, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		defer cancel()
+		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager})
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(manifest)
+	}
 	if command == "schema-status" {
 		fmt.Println("schema is current")
 		return nil
@@ -169,6 +193,16 @@ func run(args []string, log *slog.Logger) error {
 		return err
 	}
 	defer neteaseClient.Close()
+	qqClient, err := qq.New(platformhttp.Options{Cookie: os.Getenv(c.Providers.QQCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
+	if err != nil {
+		return err
+	}
+	defer qqClient.Close()
+	kugouClient, err := kugou.New(platformhttp.Options{Cookie: os.Getenv(c.Providers.KugouCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
+	if err != nil {
+		return err
+	}
+	defer kugouClient.Close()
 	musicService, err := music.New(neteaseClient, music.Options{MaxBytes: c.Cache.MaxBytes, MaxEntries: c.Cache.MaxEntries, MaxItemBytes: c.Cache.MaxItemBytes, PrivateCache: cookie != "", UserRequestsPerMinute: c.Providers.UserRequestsPerMinute, IPRequestsPerMinute: c.Providers.IPRequestsPerMinute})
 	if err != nil {
 		return err
@@ -181,12 +215,17 @@ func run(args []string, log *slog.Logger) error {
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
 	musicRoutes := music.NewHandler(musicService, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	libraryStore := librarystore.New(db.ORM)
-	libraryRoutes := library.NewHandler(library.NewWithRemote(libraryStore, libraryStore, neteaseClient), authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
+	libraryRoutes := library.NewHandler(library.NewWithRemote(libraryStore, libraryStore, library.RemoteProviders{"netease": neteaseClient, "qq": qqClient}), authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
+	userRoutes := userstate.NewHandler(userstate.New(userstatestore.New(db.ORM)), authRoutes.Protect, log)
+	compatibility := func(mux *http.ServeMux) { compat.Register(mux, authRoutes.Protect) }
+	extraRoutes := func(mux *http.ServeMux) {
+		musicService.RegisterExtensions(mux, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }, map[string]music.Extension{"netease": neteaseClient, "qq": qqClient, "kugou": kugouClient})
+	}
 	listener, err := net.Listen("tcp", c.Server.Listen)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register)
+	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes)
 }
 
 func serveListener(ctx context.Context, c config.Server, db server.Readiness, log *slog.Logger, listener net.Listener, register ...func(*http.ServeMux)) error {

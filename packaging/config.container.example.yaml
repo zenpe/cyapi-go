@@ -1,0 +1,13 @@
+server:
+  listen: "0.0.0.0:8080"
+  public_base_url: "https://api.example.com"
+  trusted_proxies: []
+  cors_allowed_origins: []
+database:
+  driver: "sqlite"
+  dsn: "/data/cyapi.db"
+sources:
+  directory: "/data/sources"
+  repo: "guoyue2010/lxmusic-"
+mail:
+  sender_email: ""

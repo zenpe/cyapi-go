@@ -10,3 +10,8 @@ dist
 .cache
 *.db
 *.exe
+
+packaging/config.yaml
+packaging/data
+packaging/backups
+**/.env

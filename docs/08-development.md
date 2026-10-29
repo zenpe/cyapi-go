@@ -1,6 +1,6 @@
 # 开发与运行（首批实现）
 
-当前实现：CLI、严格 YAML 配置、根路径、存活/就绪检查、可信代理 IP 解析、CORS、结构化日志、优雅退出、SQLite/PostgreSQL 版本化迁移。账号注册/登录/重置密码/Token 校验已实现；收藏和本地歌单已实现；本地音源分发、sync-sources/status/rollback 已实现；网易云搜索/解析/歌词/歌单/专辑、有界缓存及远程歌单关注/同步/复制已实现；其他业务路由及 backup 尚未实现；import-legacy 不在首期范围，未知命令会明确失败；不会用空成功响应代替功能。
+当前实现：基础服务、配置/日志/健康检查、SQLite/PostgreSQL迁移、账号注册/登录/重置/资料、播放状态和统计、收藏/本地与远程歌单、本地音源分发/同步/回滚、网易云/QQ/酷狗、首页与发现、一致性备份。占位接口显式兼容旧行为；赞助和支付暂缓且不注册；扫码暂缓，旧账号/数据不迁移。实际完成状态与目标环境验收见契约矩阵和实施记录。
 
 ## 本地启动
 
@@ -69,7 +69,7 @@ go build -trimpath -o dist/cyapi-linux-amd64 ./cmd/cyapi
 
 数据库持久化固定窗口限流：发码每邮箱 1 次/分钟、每 IP 10 次/分钟；登录/验证码提交每标识 10 次/15分钟、每 IP 100 次/15分钟。登录成功返还本次账号额度，IP 额度保留；429 返回 Retry-After。用户名与邮箱登录按各自标识计数。应用只信任 server.trusted_proxies 中的代理提供的 X-Real-IP。
 
-并发消费验证码、唯一键冲突回滚、登录限流和窗口退款等契约已在 SQLite 与 PostgreSQL 上测试。邮件失败返回通用错误；不回显上游响应。账号资料修改与第三方登录仍待实现。
+并发消费验证码、唯一键冲突回滚、登录限流和窗口退款等契约已在 SQLite 与 PostgreSQL 上测试。邮件失败返回通用错误；不回显上游响应。账号资料修改已实现，LinuxDO维持旧未配置契约。
 
 ## 收藏与本地歌单
 
@@ -117,7 +117,7 @@ cyapi sources rollback --config /path/config.yaml --generation g-...
 
 每应用用户默认120请求/分钟，每可信解析 IP 默认300请求/分钟（providers.user_requests_per_minute、ip_requests_per_minute）；缓存命中同样计数，429包含 Retry-After。状态仅在内存，最多4096个限流键，重启重置；账号认证限流仍使用数据库。业务总预算为搜索12秒、歌词7秒、歌曲15秒、歌单/专辑20秒；网易云路由显式使用25秒业务鉴权包装，账号查验独立限制5秒，避免将旧通用5秒预算误套到平台请求。
 
-QQ/酷狗平台仍未实现，远程歌单当前仅支持网易云。
+QQ/酷狗已接入，远程歌单支持网易云和QQ。
 
 ## 远程歌单关注、同步和复制
 
@@ -125,7 +125,7 @@ QQ/酷狗平台仍未实现，远程歌单当前仅支持网易云。
 
 | 接口 | 请求字段 | 结果 |
 | --- | --- | --- |
-| POST /playlists/follow | source=netease、sourcePlaylistId（正整数ID）、operationId、可选name | 取得完整来源后创建只读 synced 歌单；同用户同来源重复关注409 SOURCE_ALREADY_FOLLOWED |
+| POST /playlists/follow | source=netease或qq、sourcePlaylistId（正整数ID）、operationId、可选name | 取得完整来源后创建只读 synced 歌单；同用户同来源重复关注409 SOURCE_ALREADY_FOLLOWED |
 | POST /playlists/{playlistId}/sync | operationId | 重新读取平台，不经过查询缓存；发布成功返回 playlist，contentRevision 加1 |
 | POST /playlists/{playlistId}/copy | operationId、可选name | 将最近一次完整快照复制为可编辑 local 歌单；返回 playlist 和 copiedCount，无需访问平台 |
 
@@ -146,3 +146,16 @@ operationId 按用户/操作作用域记录：成功和已落库的业务失败�
 ```
 
 本轮无新增依赖和数据库迁移，未启用旧账号迁移或扫码登录。真实平台、Cookie、NAS/frp 的可用性和资源占用仍需目标环境联调。
+
+## 集中补齐模块
+
+- 播放状态：POST /playback/save、GET /playback/last、DELETE /playback/clear。position为0–604800整数秒；同曲目/来源且元数据相同、4秒内变化小于3秒的重复保存由数据库条件合并。清除后可以立即保存，不残留内存写入屏障。
+- 统计：POST /stats/listening-time（每次0<seconds<=86400，可小数）、POST /stats/play-count；GET /stats返回全部累计总量及前10；/stats/records页码1–100000、每页1–50，稳定排名和limit+1判断hasMore；/stats/song-memory查询当前用户曲目记录。数据库原子累加，私有no-store，不从客户端userId选择账号。
+- 账号：POST /auth/update-username保持4–20位字母数字下划线与唯一约束；POST /auth/update-location校验IP与location；GET /accounts/bindings在无平台绑定创建能力时返回未绑定状态，服务器Cookie不等于用户绑定；两个unbind仅删除当前用户对应绑定，不回显凭据。
+- QQ：GET /qq/search、/qq/song、/qq/playlist与/lyrics/qq。搜索初始页完整查询失败/空结果时串行回退建议，后续页不回退；保留分页/MD5/hasMore，建议结果无下一页。歌词通过歌曲详情再取base64文本；歌曲返回三档可用地址，缺少地址不伪造，地址只接受腾讯音乐域名并升级HTTPS。完整歌单可关注与同步，保留QQ字符串mid和重复项；上游当前单次最多1000项，未读全时complete=false且禁止用于快照。
+- 酷狗：GET /kugou/search、/kugou/song、/lyrics/kugou。沿用旧签名盐与按键排序的MD5协议；歌曲/歌词需要KUGOU_COOKIE包含mid/kg_mid、dfid/kg_dfid、KugooID、token/t。请求凭据仅在固定上游域名发送，异常不回显；播放地址只允许酷狗媒体域名。
+- 首页发现：GET /toplists、/netease/top/playlist、/netease/playlist/highquality/tags、POST /artist/search、GET /v1/home/charts、/v1/discover/playlists、/v1/discover/tags。保留四榜顺序、部分结果标志、分类与base64url分页游标。榜单目前不缓存部分组装结果；普通列表/标签5分钟、搜索30秒、明确歌词10分钟；QQ/酷狗临时歌曲地址不缓存。所有新增平台查询复用音乐服务的同一LRU容量和用户/IP限流；缓存按应用用户隔离，Cookie不进入缓存键。每个平台独立限制HTTP并发，三个平台合计可能达到各自上限之和。
+- 旧固定响应：推荐/FM、用户平台歌单、部分艺人详情/百科、酷我/Apple、天气、音乐品味、LinuxDO等维持旧占位/未配置语义，静态接口标注X-Compatibility-Mode: placeholder。兼容注册不代表真实功能；通用媒体代理仍501，赞助/支付及扫码404。
+- 备份：`cyapi backup --config /absolute/config.yaml --output /absolute/new-backup-directory`，见 [部署与恢复](09-deploy-and-restore.md)。默认SQLite无需额外服务；PostgreSQL备份需匹配的pg_dump，恢复需pg_restore。默认不复制配置与秘密；外部计划任务管理保留周期和异机副本。
+
+以上为集中代码实现；本地模拟验证、真实上游可用性、NAS资源、frp链路和运维演练分别记录。旧阶段章节中的历史描述不作为最新状态，最新范围以契约矩阵为准。

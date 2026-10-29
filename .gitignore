@@ -12,3 +12,7 @@
 *.db-shm
 *.exe
 coverage.out
+
+/packaging/config.yaml
+/packaging/data/
+/packaging/backups/

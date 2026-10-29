@@ -3,19 +3,19 @@
     "method": "GET",
     "path": "/accounts/bindings",
     "source": "src/routes/accounts.ts:5",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/accounts/netease/unbind",
     "source": "src/routes/accounts.ts:21",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/accounts/kugou/unbind",
     "source": "src/routes/accounts.ts:25",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -27,13 +27,15 @@
     "method": "GET",
     "path": "/auth/linuxdo-status",
     "source": "src/routes/auth.ts:193",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/auth/linuxdo/login",
     "source": "src/routes/auth.ts:194",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
@@ -104,7 +106,7 @@
     "method": "POST",
     "path": "/auth/update-location",
     "source": "src/routes/auth.ts:647",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -116,7 +118,7 @@
     "method": "POST",
     "path": "/auth/update-username",
     "source": "src/routes/auth.ts:689",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -182,13 +184,14 @@
     "method": "GET",
     "path": "/version/latest",
     "source": "src/routes/compat.ts:18",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/toplists",
     "source": "src/routes/compat.ts:30",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -206,13 +209,13 @@
     "method": "GET",
     "path": "/netease/top/playlist",
     "source": "src/routes/compat.ts:80",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/netease/playlist/highquality/tags",
     "source": "src/routes/compat.ts:103",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -253,259 +256,297 @@
     "method": "GET",
     "path": "/recommend/songs",
     "source": "src/routes/compat.ts:130",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/recommend/resource",
     "source": "src/routes/compat.ts:131",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/recommend/for_you",
     "source": "src/routes/compat.ts:132",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/personal_fm",
     "source": "src/routes/compat.ts:143",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/fm_trash",
     "source": "src/routes/compat.ts:144",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/personalized",
     "source": "src/routes/compat.ts:145",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/personalized/newsong",
     "source": "src/routes/compat.ts:146",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/netease/user/playlists",
     "source": "src/routes/compat.ts:147",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/artist/search",
     "source": "src/routes/compat.ts:149",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/artist/detail",
     "source": "src/routes/compat.ts:163",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/artist/desc",
     "source": "src/routes/compat.ts:164",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/song/wiki/summary",
     "source": "src/routes/compat.ts:165",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/song/music/detail/get",
     "source": "src/routes/compat.ts:166",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/qq/playlist",
     "source": "src/routes/compat.ts:168",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/kuwo/search",
     "source": "src/routes/compat.ts:180",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/kuwo/song",
     "source": "src/routes/compat.ts:181",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/kuwo/playlist",
     "source": "src/routes/compat.ts:182",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/kugou/user/playlists",
     "source": "src/routes/compat.ts:183",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/kugou/playlist/tracks",
     "source": "src/routes/compat.ts:184",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/lyrics/kuwo",
     "source": "src/routes/compat.ts:186",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/apple/search",
     "source": "src/routes/compat.ts:188",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/apple/playlist",
     "source": "src/routes/compat.ts:189",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/apple/song",
     "source": "src/routes/compat.ts:190",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/apple/stream",
     "source": "src/routes/compat.ts:203",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/config/public",
     "source": "src/routes/compat.ts:205",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/info",
     "source": "src/routes/compat.ts:212",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/ip-location",
     "source": "src/routes/compat.ts:214",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/ip-location/query",
     "source": "src/routes/compat.ts:222",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/weather",
     "source": "src/routes/compat.ts:231",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/music-taste/generate",
     "source": "src/routes/compat.ts:233",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/music-taste/generate-sync",
     "source": "src/routes/compat.ts:236",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/audio-proxy/stream",
     "source": "src/routes/compat.ts:238",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/audio/proxy",
     "source": "src/routes/compat.ts:239",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "GET",
     "path": "/url/:source/:songId/:quality",
     "source": "src/routes/compat.ts:240",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/v1/parse",
     "source": "src/routes/compat.ts:241",
-    "status": "pending"
+    "status": "compatibility",
+    "note": "保持旧项目固定响应或未配置契约，不代表真实上游能力"
   },
   {
     "method": "POST",
     "path": "/pay/create",
     "source": "src/routes/compat.ts:243",
-    "status": "pending"
+    "status": "deferred",
+    "note": "用户要求暂缓赞助及支付"
   },
   {
     "method": "POST",
     "path": "/pay/query",
     "source": "src/routes/compat.ts:253",
-    "status": "pending"
+    "status": "deferred",
+    "note": "用户要求暂缓赞助及支付"
   },
   {
     "method": "POST",
     "path": "/sponsors/create",
     "source": "src/routes/compat.ts:264",
-    "status": "pending"
+    "status": "deferred",
+    "note": "用户要求暂缓赞助及支付"
   },
   {
     "method": "GET",
     "path": "/sponsors/status/:userId",
     "source": "src/routes/compat.ts:285",
-    "status": "pending"
+    "status": "deferred",
+    "note": "用户要求暂缓赞助及支付"
   },
   {
     "method": "GET",
     "path": "/sponsors/list",
     "source": "src/routes/compat.ts:310",
-    "status": "pending"
+    "status": "deferred",
+    "note": "用户要求暂缓赞助及支付"
   },
   {
     "method": "GET",
     "path": "/v1/home/charts",
     "source": "src/routes/content.ts:38",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/v1/discover/playlists",
     "source": "src/routes/content.ts:53",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/v1/discover/tags",
     "source": "src/routes/content.ts:81",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -559,13 +600,13 @@
     "method": "GET",
     "path": "/lyrics/qq",
     "source": "src/routes/lyrics.ts:58",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/lyrics/kugou",
     "source": "src/routes/lyrics.ts:64",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
@@ -583,43 +624,43 @@
     "method": "GET",
     "path": "/qq/search",
     "source": "src/routes/music.ts:50",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/qq/song",
     "source": "src/routes/music.ts:65",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/kugou/search",
     "source": "src/routes/music.ts:77",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/kugou/song",
     "source": "src/routes/music.ts:92",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playback/save",
     "source": "src/routes/playback.ts:10",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/playback/last",
     "source": "src/routes/playback.ts:52",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "DELETE",
     "path": "/playback/clear",
     "source": "src/routes/playback.ts:77",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -721,30 +762,30 @@
     "method": "POST",
     "path": "/stats/listening-time",
     "source": "src/routes/stats.ts:15",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/stats/play-count",
     "source": "src/routes/stats.ts:29",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/stats",
     "source": "src/routes/stats.ts:50",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/stats/records",
     "source": "src/routes/stats.ts:73",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/stats/song-memory",
     "source": "src/routes/stats.ts:89",
-    "status": "pending"
+    "status": "implemented"
   }
 ]

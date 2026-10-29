@@ -1,0 +1,12 @@
+serverAddr = "vps.example.com"
+serverPort = 7000
+loginFailExit = false
+auth.method = "token"
+auth.token = "{{ .Envs.FRP_TOKEN }}"
+transport.tls.enable = true
+[[proxies]]
+name = "cyapi"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+remotePort = 18080

@@ -58,7 +58,7 @@ func TestRemotePlaylistHTTP(t *testing.T) {
 				return remoteSnapshot("2", "1", "2"), nil
 			}))
 			f.request(0, "POST", "/playlists/follow", follow("x"), 401)
-			f.request(1, "POST", "/playlists/follow", map[string]any{"operationId": "x", "source": "qq", "sourcePlaylistId": "42"}, 400)
+			f.request(1, "POST", "/playlists/follow", map[string]any{"operationId": "x", "source": "kuwo", "sourcePlaylistId": "42"}, 400)
 			f.request(1, "POST", "/playlists/follow", map[string]any{"operationId": "x", "source": "netease", "sourcePlaylistId": "https://evil.invalid/"}, 400)
 			created := f.request(1, "POST", "/playlists/follow", follow("follow"), 200)
 			id := created.Playlist.ID

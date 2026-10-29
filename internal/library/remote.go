@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -66,8 +67,8 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 		c.Source = strings.ToLower(strings.TrimSpace(c.Source))
 		c.SourcePlaylistID = strings.TrimSpace(c.SourcePlaylistID)
 		id, e := ParseID(c.SourcePlaylistID)
-		if c.Source != "netease" || e != nil {
-			return Result{}, Fail(400, "INVALID_SOURCE", "当前仅支持网易云数字歌单 ID")
+		if (c.Source != "netease" && c.Source != "qq") || e != nil {
+			return Result{}, Fail(400, "INVALID_SOURCE", "当前仅支持网易云或QQ的数字歌单 ID")
 		}
 		c.SourcePlaylistID = strconv.FormatInt(id, 10)
 	}
@@ -102,7 +103,11 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 				failure = Fail(422, "SOURCE_SNAPSHOT_INCOMPLETE", "来源歌曲数据无效，已保留上次完整内容")
 				break
 			}
-			if _, err = ParseID(normalized.TrackID); err != nil {
+			_, err = ParseID(normalized.TrackID)
+			if ticket.Command.Source == "qq" && remoteQQID.MatchString(normalized.TrackID) {
+				err = nil
+			}
+			if err != nil {
 				failure = Fail(422, "SOURCE_SNAPSHOT_INCOMPLETE", "来源歌曲标识无效")
 				break
 			}
@@ -119,3 +124,15 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 	defer finishCancel()
 	return s.remote.FinishRemote(finishCtx, user, ticket, snapshot, failure)
 }
+
+type RemoteProviders map[string]RemoteProvider
+
+func (p RemoteProviders) FetchSnapshot(ctx context.Context, source, id string) (RemoteSnapshot, error) {
+	provider := p[source]
+	if provider == nil {
+		return RemoteSnapshot{}, Fail(400, "INVALID_SOURCE", "来源不可用")
+	}
+	return provider.FetchSnapshot(ctx, source, id)
+}
+
+var remoteQQID = regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`)
