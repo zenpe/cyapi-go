@@ -56,7 +56,7 @@ func TestGracefulCancellationClosesListener(t *testing.T) {
 	}
 }
 func TestUnknownCommandIsExplicit(t *testing.T) {
-	for _, args := range [][]string{nil, {"not-a-command"}, {"version", "extra"}} {
+	for _, args := range [][]string{{"not-a-command"}, {"version", "extra"}} {
 		if run(args, slog.Default()) == nil {
 			t.Fatalf("accepted unimplemented/invalid command %v", args)
 		}

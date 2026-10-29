@@ -2,6 +2,8 @@
 
 当前默认 SQLite 单实例。以下为待目标环境验证的可执行操作说明；未自动连接 NAS、发送真实邮件或切换线上入口。赞助与支付暂缓；扫码、旧账号导入及已排除平台继续不实现。
 
+原生简化安装、内置维护和升级命令见 [NAS 原生安装与运维](10-nas-install.md)。下文保留手动部署与容器部署方式。
+
 ## 二进制部署
 
 执行 scripts/release.sh 或 scripts/release.ps1 生成带版本/commit 的 Linux amd64、arm64 和 Windows amd64 产物及 SHA256SUMS。选择 NAS CPU 对应产物，校验摘要。生产采用 configs/config.example.yaml，设置绝对 database.dsn、sources.directory、public_base_url 和独立 CYAPI_AUTH_SECRET。以同一非特权用户运行 serve 和计划任务，数据库与 sources 目录只允许该用户写。
@@ -40,7 +42,7 @@ output 必须是尚不存在的目录。SQLite 使用 VACUUM INTO 得到一致�
 
 备份先写同目录临时目录，完整后重命名发布，包含 database.sqlite/database.dump、SHA256、程序版本、commit、驱动、当前音源完整版本及其manifest和current.json。持有音源读取租约，逐文件校验后复制，损坏时不发布备份。尚无音源版本时manifest明确没有音源，已有指针损坏则失败。数据库与音源分别一致，不承诺跨系统同一时刻事务。
 
-配置文件、环境密钥不自动复制，需另行受限备份；不能把.env连同普通下载文件公开。每日及升级前运行备份，外部NAS任务负责保留策略和异机副本。服务用户只应访问自己控制的备份父目录。
+默认 backup 不复制配置和密钥；可传 --include-config 将 config.yaml 与 secrets.env 作为受限恢复文件并记录校验值，进程环境中的凭据仍需另行备份。install 启用的自动备份会包含这两个文件，不能将恢复包作为普通下载文件公开。每日及升级前运行备份，外部NAS任务负责保留策略和异机副本。服务用户只应访问自己控制的备份父目录。
 
 ## 恢复与升级
 

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -46,6 +47,9 @@ func main() {
 	}
 }
 func run(args []string, log *slog.Logger) error {
+	if handled, err := handleCLI(args, log); handled {
+		return err
+	}
 	if len(args) == 0 {
 		return errors.New("usage: cyapi <serve|migrate|schema-status|backup|sync-sources|sources|version> [--config path]")
 	}
@@ -72,8 +76,11 @@ func run(args []string, log *slog.Logger) error {
 	var force, dry *bool
 	var generation *string
 	var backupOutput *string
+	var includeConfig *bool
+	logPath := flags.String("log-file", "", "rotating log file (serve only; 10 MiB x 4)")
 	if command == "backup" {
 		backupOutput = flags.String("output", "", "new backup directory")
+		includeConfig = flags.Bool("include-config", false, "include restricted config and secrets recovery files")
 	}
 	if command == "sync-sources" {
 		force = flags.Bool("force", false, "publish even when unchanged")
@@ -85,10 +92,24 @@ func run(args []string, log *slog.Logger) error {
 
 	path := flags.String("config", "config.yaml", "configuration file")
 	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if *logPath != "" {
+		if command != "serve" {
+			return errors.New("--log-file is only valid for serve")
+		}
+		writer, err := newRotatingLog(*logPath)
+		if err != nil {
+			return err
+		}
+		defer writer.Close()
+		log = slog.New(slog.NewJSONHandler(writer, nil))
 	}
 	c, err := config.Load(*path)
 	if err != nil {
@@ -143,6 +164,11 @@ func run(args []string, log *slog.Logger) error {
 	}
 	defer db.Close()
 	if command == "migrate" {
+		release, e := acquireLock(filepath.Join(c.RuntimeDirectory, "serve.lock"))
+		if e != nil {
+			return e
+		}
+		defer release()
 		operation, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		if err = db.Migrate(operation); err != nil {
@@ -164,7 +190,7 @@ func run(args []string, log *slog.Logger) error {
 		}
 		work, cancel := context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
-		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager})
+		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: *includeConfig, ConfigPath: *path, SecretsPath: c.SecretsFile})
 		if e != nil {
 			return e
 		}
@@ -175,6 +201,11 @@ func run(args []string, log *slog.Logger) error {
 		return nil
 	}
 
+	release, err := acquireLock(filepath.Join(c.RuntimeDirectory, "serve.lock"))
+	if err != nil {
+		return err
+	}
+	defer release()
 	secret, err := c.Secret()
 	if err != nil {
 		return err
@@ -182,23 +213,23 @@ func run(args []string, log *slog.Logger) error {
 	if c.Mail.Provider != "brevo" {
 		return errors.New("unsupported mail provider")
 	}
-	mailer := mail.NewBrevo(mail.Options{APIKey: os.Getenv(c.Mail.APIKeyEnv), SenderEmail: c.Mail.SenderEmail, SenderName: c.Mail.SenderName, AppName: c.Mail.AppName})
+	mailer := mail.NewBrevo(mail.Options{APIKey: c.Env(c.Mail.APIKeyEnv), SenderEmail: c.Mail.SenderEmail, SenderName: c.Mail.SenderName, AppName: c.Mail.AppName})
 	accounts, err := auth.New(authstore.New(db.ORM), mailer, auth.Options{Secret: secret, TokenMaxAge: c.Auth.TokenMaxAge, Logger: log})
 	if err != nil {
 		return err
 	}
-	cookie := os.Getenv(c.Providers.NeteaseCookieEnv)
+	cookie := c.Env(c.Providers.NeteaseCookieEnv)
 	neteaseClient, err := netease.New(netease.Options{Cookie: cookie, MaxConcurrent: c.Providers.MaxConcurrent, RequestTimeout: c.Providers.RequestTimeout})
 	if err != nil {
 		return err
 	}
 	defer neteaseClient.Close()
-	qqClient, err := qq.New(platformhttp.Options{Cookie: os.Getenv(c.Providers.QQCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
+	qqClient, err := qq.New(platformhttp.Options{Cookie: c.Env(c.Providers.QQCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
 	if err != nil {
 		return err
 	}
 	defer qqClient.Close()
-	kugouClient, err := kugou.New(platformhttp.Options{Cookie: os.Getenv(c.Providers.KugouCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
+	kugouClient, err := kugou.New(platformhttp.Options{Cookie: c.Env(c.Providers.KugouCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
 	if err != nil {
 		return err
 	}
@@ -225,6 +256,15 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	if !mailer.Ready() {
+		log.Warn("mail is not configured; public registration and password recovery are unavailable")
+	}
+	if c.Server.PublicBaseURL == "" {
+		log.Warn("public_base_url is not configured; set it before using source download links")
+	}
+	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
+	waitMaintenance := startMaintenance(maintenanceCtx, c, *path, db, sourceFiles, log)
+	defer func() { stopMaintenance(); waitMaintenance() }()
 	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes)
 }
 
@@ -256,5 +296,5 @@ func serveListener(ctx context.Context, c config.Server, db server.Readiness, lo
 }
 
 func sourceManager(c config.Config) (*sources.Manager, error) {
-	return sources.New(sources.Options{Directory: c.Sources.Directory, Repo: c.Sources.Repo, Token: os.Getenv(c.Sources.GitHubTokenEnv), AllowEmpty: c.Sources.AllowEmpty, MaxZipBytes: c.Sources.MaxZipBytes, MaxFileBytes: c.Sources.MaxFileBytes, MaxTotalBytes: c.Sources.MaxTotalBytes, MaxFiles: c.Sources.MaxFiles, ReserveBytes: c.Sources.ReserveBytes})
+	return sources.New(sources.Options{Directory: c.Sources.Directory, Repo: c.Sources.Repo, Token: c.Env(c.Sources.GitHubTokenEnv), AllowEmpty: c.Sources.AllowEmpty, MaxZipBytes: c.Sources.MaxZipBytes, MaxFileBytes: c.Sources.MaxFileBytes, MaxTotalBytes: c.Sources.MaxTotalBytes, MaxFiles: c.Sources.MaxFiles, ReserveBytes: c.Sources.ReserveBytes})
 }

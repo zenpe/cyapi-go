@@ -272,3 +272,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*User, error)
 	}
 	return user, nil
 }
+
+// ValidateNewAccount shares the public registration policy with local installation bootstrap.
+func ValidateNewAccount(email, username, password string) error {
+	if !emailPattern.MatchString(email) || !usernamePattern.MatchString(username) || !validPassword(password) {
+		return ErrInvalid
+	}
+	return nil
+}

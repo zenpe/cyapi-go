@@ -63,3 +63,6 @@ flowchart TD
 ## 完成的定义
 
 原客户端关键流程可用；新注册账号及其歌单数据一致；SQLite/PostgreSQL 契约测试通过；GitHub 同步失败不破坏现有脚本；公网真实 IP 和代理限制有效；NAS 资源测试、升级和备份恢复演练完成；最终运行无需 Cloudflare 凭据。各阶段证据见实施路线文档要求。
+## NAS 一键安装
+
+参见 [NAS 原生安装与运维](docs/10-nas-install.md)。Linux 二进制在当前目录执行 `./cyapi install`，帮助使用 `./cyapi --help`，诊断使用 `./cyapi doctor`。

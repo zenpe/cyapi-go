@@ -15,7 +15,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Maintenance struct {
+	Enabled         bool          `yaml:"enabled"`
+	SyncInterval    time.Duration `yaml:"sync_interval"`
+	BackupInterval  time.Duration `yaml:"backup_interval"`
+	BackupDirectory string        `yaml:"backup_directory"`
+	BackupKeep      int           `yaml:"backup_keep"`
+}
+
 type Config struct {
+	SecretsFile      string      `yaml:"secrets_file"`
+	RuntimeDirectory string      `yaml:"runtime_directory"`
+	Maintenance      Maintenance `yaml:"maintenance"`
+	values           map[string]string
+
 	Server    Server    `yaml:"server"`
 	Database  Database  `yaml:"database"`
 	Auth      Auth      `yaml:"auth"`
@@ -77,6 +90,9 @@ type Providers struct {
 
 func Defaults() Config {
 	var c Config
+	c.RuntimeDirectory = "data"
+	c.SecretsFile = "secrets.env"
+	c.Maintenance = Maintenance{SyncInterval: 6 * time.Hour, BackupInterval: 24 * time.Hour, BackupDirectory: "backups", BackupKeep: 7}
 	c.Server = Server{Listen: "127.0.0.1:8080", ShutdownGrace: 30 * time.Second}
 	c.Database = Database{Driver: "sqlite", DSN: "data/cyapi.db", BusyTimeout: 5 * time.Second}
 	c.Auth = Auth{SecretEnv: "CYAPI_AUTH_SECRET", TokenMaxAge: 720 * time.Hour}
@@ -116,6 +132,16 @@ func Load(path string) (Config, error) {
 	if err = dec.Decode(&extra); err != io.EOF {
 		return c, errors.New("config must contain one YAML document")
 	}
+	baseDir := filepath.Dir(absolute)
+	if c.SecretsFile != "" {
+		if !filepath.IsAbs(c.SecretsFile) {
+			c.SecretsFile = filepath.Join(baseDir, c.SecretsFile)
+		}
+		c.values, err = ReadSecrets(c.SecretsFile)
+		if err != nil {
+			return c, err
+		}
+	}
 	for _, v := range []struct {
 		key  string
 		dest *string
@@ -128,7 +154,7 @@ func Load(path string) (Config, error) {
 		}
 	}
 	if _, override := os.LookupEnv("CYAPI_DATABASE_DSN"); !override && c.Database.DSNEnv != "" {
-		c.Database.DSN = os.Getenv(c.Database.DSNEnv)
+		c.Database.DSN = c.Env(c.Database.DSNEnv)
 	}
 	if err = c.Validate(); err != nil {
 		return c, err
@@ -144,10 +170,19 @@ func Load(path string) (Config, error) {
 		c.Database.DSN = resolve(c.Database.DSN)
 	}
 	c.Sources.Directory = resolve(c.Sources.Directory)
+	c.Maintenance.BackupDirectory = resolve(c.Maintenance.BackupDirectory)
+	c.RuntimeDirectory = resolve(c.RuntimeDirectory)
 	return c, nil
 }
 
 func (c Config) Validate() error {
+	if c.RuntimeDirectory == "" {
+		return errors.New("runtime_directory is required")
+	}
+	if c.Maintenance.SyncInterval < time.Minute || c.Maintenance.BackupInterval < time.Minute || c.Maintenance.BackupKeep < 1 || c.Maintenance.BackupKeep > 365 || c.Maintenance.BackupDirectory == "" {
+		return errors.New("invalid maintenance interval, backup directory or retention")
+	}
+
 	if _, _, err := net.SplitHostPort(c.Server.Listen); err != nil {
 		return errors.New("server.listen must be host:port")
 	}
@@ -201,7 +236,7 @@ func (c Config) Validate() error {
 	return nil
 }
 func (c Config) Secret() (string, error) {
-	value := os.Getenv(c.Auth.SecretEnv)
+	value := c.Env(c.Auth.SecretEnv)
 	if strings.TrimSpace(value) == "" {
 		return "", errors.New("authentication secret is missing")
 	}

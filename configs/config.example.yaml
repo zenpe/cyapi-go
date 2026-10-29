@@ -1,3 +1,13 @@
+# Literal KEY=VALUE file beside this config; process environment takes precedence.
+secrets_file: "secrets.env"
+runtime_directory: "data"
+maintenance:
+  enabled: false # install generates enabled: true; existing deployments opt in explicitly
+  sync_interval: "6h"
+  backup_interval: "24h"
+  backup_directory: "backups"
+  backup_keep: 7
+
 server:
   listen: "127.0.0.1:8080"
   public_base_url: "http://localhost:8080"

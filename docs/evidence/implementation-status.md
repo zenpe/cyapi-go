@@ -63,3 +63,14 @@ CGO_ENABLED=0、-buildvcs=false -trimpath -s -w 构建Windows amd64、Linux amd6
 目标环境尚未验收：真实网易云/QQ/酷狗可用性、NAS资源与压力、Docker运行、frp与真实IP链路、真实邮件/真实GitHub大附件、race以及升级失败恢复。临时PostgreSQL工具包只有服务器与pg_ctl，不包含psql/pg_dump/pg_restore；尝试PostgreSQL备份命令的实测准备时即因工具缺失停止，未创建测试数据库，未修改原数据库，不能声称PostgreSQL导出/恢复已通过。backup代码已提供该分支与清晰的依赖缺失错误，需目标环境使用匹配工具完成验收。配置/密钥不自动纳入普通备份，运维人员另行受限保管。最新可执行部署/恢复说明见09-deploy-and-restore.md。
 
 本轮集中实现、统一验证记录及部署材料纳入本次阶段提交。旧cyapi-workers仓库未修改；其已有Android截图未跟踪文件保留。
+
+
+## 2026-10-29 NAS 原生安装与维护
+
+新增当前目录 install（--dir、首个账号交互隐藏密码/环境密码、幂等配置密钥、既有数据库密钥丢失保护）、启动脚本、Linux systemd 普通用户注册。无 systemd/权限时明确降级为手动启动，不宣称开机服务已注册。新增 help/--help/--version、status、只读 doctor（--network 可选）。配置增加 secrets_file/runtime_directory/maintenance；字面量密钥文件低于进程环境优先级，旧配置默认不开启维护。
+
+serve 保持显式 schema 检查、不自动迁移，新增实例锁、受限日志轮转、邮件和公网地址提示。维护任务串行执行，音源默认每6小时、备份每24小时，持久化成功/失败状态、失败至少间隔5分钟重试。备份可包含配置/密钥校验值；自动保留最近7份完成备份，不清理手动/升级备份，拒绝跟随符号链接。升级限 Linux systemd，先暂存校验候选程序，再停止/备份/迁移/保存旧程序/切换/readiness；进入迁移后失败保持停机，不自动把旧程序连到新 schema。
+
+验证：完整 go test ./... -count=1 -timeout=120s 通过；最后调整后受影响命令/config/backup 测试通过；go vet ./...、go mod verify 通过。升级注入备份失败、迁移失败、readiness失败及成功路径通过；断网维护测试确认音源失败后恢复备份仍成功并可取消退出。Windows 实际发布程序在独立临时目录完成首次/重复安装（密钥摘要不变）、bootstrap账号登录、在线恢复备份、status/doctor、运行中迁移拒绝。未改变8080上的既有测试服务。
+
+产物：dist/cyapi-windows-amd64.exe、Linux amd64/arm64 二进制与 cyapi-nas-linux-{arch}.tar.gz 安装包、SHA256SUMS；版本 nas-ops-dev，commit 标记 663d21a+working，表示未提交工作树构建。NAS Linux/systemd/ACL、真实TTY隐藏输入、真实升级停机恢复、frp、断电和PostgreSQL dump/restore尚未在目标设备验证；跨编译和模拟测试不代表这些验收已完成。

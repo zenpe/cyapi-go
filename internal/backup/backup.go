@@ -27,10 +27,13 @@ type Manifest struct {
 	DatabaseBytes                      int64
 	SourcesGeneration                  string
 	SourceFiles                        int
+	RecoveryFiles                      map[string]string `json:",omitempty"`
 	ConfigIncluded                     bool
 }
 type Options struct {
 	Output, DSN, Version, Commit, SourcesDirectory string
+	IncludeConfig                                  bool
+	ConfigPath, SecretsPath                        string
 	Manager                                        *sources.Manager
 }
 
@@ -134,6 +137,36 @@ func Run(ctx context.Context, db *persistence.Database, o Options) (Manifest, er
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return Manifest{}, errors.New("source directory cannot be inspected")
 		}
+	}
+	if o.IncludeConfig {
+		manifest.RecoveryFiles = map[string]string{}
+		for name, source := range map[string]string{"config.yaml": o.ConfigPath, "secrets.env": o.SecretsPath} {
+			if source == "" {
+				continue
+			}
+			info, err := os.Lstat(source)
+			if errors.Is(err, os.ErrNotExist) && name == "secrets.env" {
+				continue
+			}
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				return Manifest{}, errors.New("recovery file missing, linked or oversized")
+			}
+			digest, size, err := hashFile(ctx, source)
+			if err != nil {
+				return Manifest{}, err
+			}
+			f, err := os.Open(source)
+			if err != nil {
+				return Manifest{}, err
+			}
+			err = copySource(ctx, f, filepath.Join(stage, name), size, digest)
+			f.Close()
+			if err != nil {
+				return Manifest{}, err
+			}
+			manifest.RecoveryFiles[name] = digest
+		}
+		manifest.ConfigIncluded = true
 	}
 	if e = writeJSON(filepath.Join(stage, "manifest.json"), manifest); e != nil {
 		return Manifest{}, e
