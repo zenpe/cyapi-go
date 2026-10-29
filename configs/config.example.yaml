@@ -17,8 +17,14 @@ cache:
   max_entries: 2000
   max_item_bytes: 1048576
 sources:
+  repo: "guoyue2010/lxmusic-"
+  max_zip_bytes: 536870912
+  max_file_bytes: 67108864
+  max_total_bytes: 2147483648
+  max_files: 10000
+  reserve_bytes: 1073741824
+  timeout: "10m"
   directory: "data/sources"
-  manifest_file: "sources.yaml"
   github_token_env: "GITHUB_TOKEN"
   allow_empty: false
 mail:

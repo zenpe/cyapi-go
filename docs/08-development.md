@@ -1,6 +1,6 @@
 # 开发与运行（首批实现）
 
-当前实现：CLI、严格 YAML 配置、根路径、存活/就绪检查、可信代理 IP 解析、CORS、结构化日志、优雅退出、SQLite/PostgreSQL 版本化迁移。账号注册/登录/重置密码/Token 校验已实现；其他业务路由及 sync-sources/backup 尚未实现；import-legacy 不在首期范围，未知命令会明确失败；不会用空成功响应代替功能。
+当前实现：CLI、严格 YAML 配置、根路径、存活/就绪检查、可信代理 IP 解析、CORS、结构化日志、优雅退出、SQLite/PostgreSQL 版本化迁移。账号注册/登录/重置密码/Token 校验已实现；收藏和本地歌单已实现；本地音源分发、sync-sources/status/rollback 已实现；其他业务路由及 backup 尚未实现；import-legacy 不在首期范围，未知命令会明确失败；不会用空成功响应代替功能。
 
 ## 本地启动
 
@@ -24,7 +24,7 @@ go run ./cmd/cyapi serve --config config.yaml
 
 当前支持的覆盖变量：CYAPI_LISTEN、CYAPI_PUBLIC_BASE_URL、CYAPI_DATABASE_DRIVER、CYAPI_DATABASE_DSN。`database.dsn_env` 指定读取其他环境变量；CYAPI_DATABASE_DSN 优先。其他配置字段暂不提供通用环境变量映射。
 
-`auth.secret_env` 指向密钥环境变量；migrate/schema-status/version 不读取此密钥。mail 配置已用于 Brevo 验证码邮件；cache/sources/providers 仍为后续模块预留。
+`auth.secret_env` 指向密钥环境变量；migrate/schema-status/version 不读取此密钥。mail 配置已用于 Brevo 验证码邮件；sources 已用于本地音源分发与 Release ZIP 同步，cache/providers 仍为后续模块预留。
 
 应用只从可信直连代理接受单一 X-Real-IP，忽略未信任来源及伪造 X-Forwarded-For/CF-Connecting-IP。入口必须覆盖 X-Real-IP，trusted_proxies 使用实际直接连接地址的 CIDR。CORS 只允许精确配置的 HTTP(S) origin，默认不允许跨域网页请求；无 Origin 的原生客户端不受此配置限制。
 
@@ -69,4 +69,32 @@ go build -trimpath -o dist/cyapi-linux-amd64 ./cmd/cyapi
 
 数据库持久化固定窗口限流：发码每邮箱 1 次/分钟、每 IP 10 次/分钟；登录/验证码提交每标识 10 次/15分钟、每 IP 100 次/15分钟。登录成功返还本次账号额度，IP 额度保留；429 返回 Retry-After。用户名与邮箱登录按各自标识计数。应用只信任 server.trusted_proxies 中的代理提供的 X-Real-IP。
 
-并发消费验证码、唯一键冲突回滚、登录限流和窗口退款等契约已在 SQLite 与 PostgreSQL 上测试。邮件失败返回通用错误；不回显上游响应。账号资料修改、第三方登录、歌单/收藏和音源接口仍待实现。
+并发消费验证码、唯一键冲突回滚、登录限流和窗口退款等契约已在 SQLite 与 PostgreSQL 上测试。邮件失败返回通用错误；不回显上游响应。账号资料修改、第三方登录和远程歌单同步仍待实现。
+
+## 收藏与本地歌单
+
+收藏：POST /favorites、GET /favorites、DELETE /favorites/:trackId/:source。歌曲字段沿用 trackId/name/artists/album/picUrl/source/sourceIds，sourceIds 保留 fileHash/emixSongId/albumAudioId。重复收藏返回 400；取消不存在的收藏返回 404。
+
+歌单：GET/POST /playlists、GET /playlists/check-track、PUT/DELETE /playlists/:playlistId、POST /playlists/:playlistId/delete；歌曲列表/添加 GET/POST /playlists/:playlistId/tracks，批量添加 POST /playlists/:playlistId/tracks/batch；删除 DELETE /playlists/:playlistId/items/:itemId，批量删除 POST /playlists/:playlistId/items/batch-remove，换源 POST /playlists/:playlistId/items/:itemId/replace，排序 POST /playlists/:playlistId/items/reorder。
+
+所有接口必须提供 Bearer Token，用户 ID 从验证后的会话获取，忽略请求提供的 userId。访问他人的歌单/条目返回 404。GET /playlists 自动确保唯一的“我的收藏”默认本地歌单，该歌单不可改名/删除。旧 favorites 表和默认歌单沿用原项目的独立模型，不自动互相镜像。
+
+创建和歌曲变更必须附带 operationId（最长 128 字节）。记录按用户隔离，成功及业务失败结果保存 24 小时；相同 ID、相同操作范围重放原结果，相同 ID 用于其他范围返回 409。重试同一操作应使用原 ID；更改请求内容或解决业务冲突后应换新 ID。数据库/超时等基础设施失败完整回滚，不留下 pending 记录，可以使用原 ID 重试。改名和删除歌单不要求 operationId，保留旧客户端行为。
+
+单首添加/换源支持 track 对象或平铺字段；批量添加使用 tracks 数组；批量删除/排序使用 itemIds 数组。批量添加按 source+trackId 去重并保持输入顺序，插入歌单头部。重复添加已有条目不增加版本号；换源保留 itemId 和位置，若目标已在歌单中则返回 409。增删成员增加 contentRevision/orderRevision，换源增加 contentRevision，排序增加 orderRevision。排序必须提交完整 itemIds 和 expectedOrderRevision；版本过期或成员不一致返回 409，整笔拒绝，不覆盖其他请求。
+
+POST/PUT/带请求体的 DELETE 支持 JSON 或 URL 编码表单；表单的 track/tracks/itemIds/sourceIds 字段使用 JSON 文本。请求体最大 1 MiB，批量增删最多 500 条，单歌单最多 10000 首，名称最多 200 个字符。排序使用有界 CASE 批次并在同一事务内完成。歌曲目录写锁按来源/歌曲 ID 固定顺序获取，歌单成员与版本写入在同一事务中完成。过期操作记录按分钟、每次最多 100 条清理。
+
+本轮复用现有基线表，无新增迁移。/playlists/follow、/:playlistId/sync、/:playlistId/copy 仍未实现，等待平台接口与远程快照模块。数据库维护/孤立目录清理及真实 NAS 资源测试仍属后续运维工作。
+
+## 本地音源
+
+已实现 GET /lx/sources、GET /lx/script，以及 sync-sources / sources status / sources rollback 命令。来源为用户旧任务确认的 guoyue2010/lxmusic- 最新正式 Release 首个 ZIP；全部文件镜像至本地，公开接口仅提供 JS。详细配置、预算、NAS 计划任务和故障恢复见 [本地音源与 GitHub 同步](04-source-sync.md)。不再需要 sources.manifest_file 或独立 sources.yaml，也不需要 R2 凭据。
+
+```sh
+cyapi sync-sources --config /path/config.yaml
+cyapi sources status --config /path/config.yaml
+cyapi sources rollback --config /path/config.yaml --generation g-...
+```
+
+同步/状态/回滚不依赖业务数据库或 AUTH_SECRET；serve 使用相同 sources.directory，发布后自动可见，无需重启。公网下载地址取 server.public_base_url。默认同步预算要求至少 3.5 GiB 可用空间；这不是常驻内存或预分配磁盘占用，可按真实 ZIP 大小调整 max_zip_bytes/max_total_bytes/reserve_bytes。

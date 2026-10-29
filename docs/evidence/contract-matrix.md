@@ -2,7 +2,7 @@
 
 账号重新注册，旧账号/密码/Token/关联用户数据均不导入。扫码登录暂不实现；B 站、抖音和 MPD 排除。pending 表示尚未实现。
 
-旧代码路由 123 项：排除 11 项，扫码暂缓 10 项，已实现根路径和账号接口 8 项；新增健康接口 2 项已实现。
+旧代码路由 123 项：排除 11 项，扫码暂缓 10 项，已实现根路径、账号、收藏/本地歌单和音源接口 26 项；新增健康接口 2 项已实现。
 
 | 方法 | 路径 | 状态 |
 | --- | --- | --- |
@@ -90,12 +90,12 @@
 | GET | `/v1/discover/playlists` | pending |
 | GET | `/v1/discover/tags` | pending |
 | GET | `/douyin` | excluded |
-| POST | `/favorites` | pending |
-| GET | `/favorites` | pending |
-| DELETE | `/favorites/:trackId/:source` | pending |
+| POST | `/favorites` | implemented |
+| GET | `/favorites` | implemented |
+| DELETE | `/favorites/:trackId/:source` | implemented |
 | GET | `/` | implemented |
-| GET | `/lx/sources` | pending |
-| GET | `/lx/script` | pending |
+| GET | `/lx/sources` | implemented |
+| GET | `/lx/script` | implemented |
 | GET | `/lyrics/netease` | pending |
 | GET | `/lyrics/qq` | pending |
 | GET | `/lyrics/kugou` | pending |
@@ -108,20 +108,20 @@
 | POST | `/playback/save` | pending |
 | GET | `/playback/last` | pending |
 | DELETE | `/playback/clear` | pending |
-| GET | `/playlists` | pending |
-| GET | `/playlists/check-track` | pending |
-| POST | `/playlists` | pending |
+| GET | `/playlists` | implemented |
+| GET | `/playlists/check-track` | implemented |
+| POST | `/playlists` | implemented |
 | POST | `/playlists/follow` | pending |
-| PUT | `/playlists/:playlistId` | pending |
-| DELETE | `/playlists/:playlistId` | pending |
-| POST | `/playlists/:playlistId/delete` | pending |
-| GET | `/playlists/:playlistId/tracks` | pending |
-| POST | `/playlists/:playlistId/tracks` | pending |
-| POST | `/playlists/:playlistId/tracks/batch` | pending |
-| DELETE | `/playlists/:playlistId/items/:itemId` | pending |
-| POST | `/playlists/:playlistId/items/batch-remove` | pending |
-| POST | `/playlists/:playlistId/items/:itemId/replace` | pending |
-| POST | `/playlists/:playlistId/items/reorder` | pending |
+| PUT | `/playlists/:playlistId` | implemented |
+| DELETE | `/playlists/:playlistId` | implemented |
+| POST | `/playlists/:playlistId/delete` | implemented |
+| GET | `/playlists/:playlistId/tracks` | implemented |
+| POST | `/playlists/:playlistId/tracks` | implemented |
+| POST | `/playlists/:playlistId/tracks/batch` | implemented |
+| DELETE | `/playlists/:playlistId/items/:itemId` | implemented |
+| POST | `/playlists/:playlistId/items/batch-remove` | implemented |
+| POST | `/playlists/:playlistId/items/:itemId/replace` | implemented |
+| POST | `/playlists/:playlistId/items/reorder` | implemented |
 | POST | `/playlists/:playlistId/sync` | pending |
 | POST | `/playlists/:playlistId/copy` | pending |
 | POST | `/stats/listening-time` | pending |

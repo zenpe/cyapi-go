@@ -47,10 +47,16 @@ type Cache struct {
 	MaxItemBytes int64 `yaml:"max_item_bytes"`
 }
 type Sources struct {
-	Directory      string `yaml:"directory"`
-	ManifestFile   string `yaml:"manifest_file"`
-	GitHubTokenEnv string `yaml:"github_token_env"`
-	AllowEmpty     bool   `yaml:"allow_empty"`
+	Repo           string        `yaml:"repo"`
+	MaxZipBytes    int64         `yaml:"max_zip_bytes"`
+	MaxFileBytes   int64         `yaml:"max_file_bytes"`
+	MaxTotalBytes  int64         `yaml:"max_total_bytes"`
+	MaxFiles       int           `yaml:"max_files"`
+	ReserveBytes   int64         `yaml:"reserve_bytes"`
+	Timeout        time.Duration `yaml:"timeout"`
+	Directory      string        `yaml:"directory"`
+	GitHubTokenEnv string        `yaml:"github_token_env"`
+	AllowEmpty     bool          `yaml:"allow_empty"`
 }
 type Mail struct {
 	SenderName  string `yaml:"sender_name"`
@@ -71,7 +77,7 @@ func Defaults() Config {
 	c.Database = Database{Driver: "sqlite", DSN: "data/cyapi.db", BusyTimeout: 5 * time.Second}
 	c.Auth = Auth{SecretEnv: "CYAPI_AUTH_SECRET", TokenMaxAge: 720 * time.Hour}
 	c.Cache = Cache{MaxBytes: 16 << 20, MaxEntries: 2000, MaxItemBytes: 1 << 20}
-	c.Sources = Sources{Directory: "data/sources", ManifestFile: "sources.yaml", GitHubTokenEnv: "GITHUB_TOKEN"}
+	c.Sources = Sources{Repo: "guoyue2010/lxmusic-", MaxZipBytes: 512 << 20, MaxFileBytes: 64 << 20, MaxTotalBytes: 2 << 30, MaxFiles: 10000, ReserveBytes: 1 << 30, Timeout: 10 * time.Minute, Directory: "data/sources", GitHubTokenEnv: "GITHUB_TOKEN"}
 	c.Mail = Mail{Provider: "brevo", APIKeyEnv: "BREVO_API_KEY", SenderName: "CyreneMusic", AppName: "CyreneMusic"}
 	c.Providers = Providers{"NETEASE_COOKIE", "QQ_COOKIE", "KUGOU_COOKIE"}
 	return c
@@ -134,7 +140,6 @@ func Load(path string) (Config, error) {
 		c.Database.DSN = resolve(c.Database.DSN)
 	}
 	c.Sources.Directory = resolve(c.Sources.Directory)
-	c.Sources.ManifestFile = resolve(c.Sources.ManifestFile)
 	return c, nil
 }
 
@@ -180,7 +185,10 @@ func (c Config) Validate() error {
 	if c.Cache.MaxBytes < 0 || c.Cache.MaxEntries < 0 || c.Cache.MaxItemBytes < 0 || c.Cache.MaxItemBytes > c.Cache.MaxBytes {
 		return errors.New("invalid cache capacity")
 	}
-	if c.Sources.Directory == "" || c.Sources.ManifestFile == "" {
+	if c.Sources.Timeout < time.Second || c.Sources.Timeout > time.Hour {
+		return errors.New("sources.timeout must be between 1s and 1h")
+	}
+	if c.Sources.Directory == "" {
 		return errors.New("source paths cannot be empty")
 	}
 	return nil

@@ -517,19 +517,19 @@
     "method": "POST",
     "path": "/favorites",
     "source": "src/routes/favorites.ts:7",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/favorites",
     "source": "src/routes/favorites.ts:24",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "DELETE",
     "path": "/favorites/:trackId/:source",
     "source": "src/routes/favorites.ts:45",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -541,13 +541,13 @@
     "method": "GET",
     "path": "/lx/sources",
     "source": "src/routes/lx.ts:21",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/lx/script",
     "source": "src/routes/lx.ts:62",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -625,19 +625,19 @@
     "method": "GET",
     "path": "/playlists",
     "source": "src/routes/playlists_v2.ts:459",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/playlists/check-track",
     "source": "src/routes/playlists_v2.ts:475",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists",
     "source": "src/routes/playlists_v2.ts:498",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
@@ -649,61 +649,61 @@
     "method": "PUT",
     "path": "/playlists/:playlistId",
     "source": "src/routes/playlists_v2.ts:563",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "DELETE",
     "path": "/playlists/:playlistId",
     "source": "src/routes/playlists_v2.ts:597",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/delete",
     "source": "src/routes/playlists_v2.ts:598",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/playlists/:playlistId/tracks",
     "source": "src/routes/playlists_v2.ts:600",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/tracks",
     "source": "src/routes/playlists_v2.ts:644",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/tracks/batch",
     "source": "src/routes/playlists_v2.ts:695",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "DELETE",
     "path": "/playlists/:playlistId/items/:itemId",
     "source": "src/routes/playlists_v2.ts:766",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/items/batch-remove",
     "source": "src/routes/playlists_v2.ts:796",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/items/:itemId/replace",
     "source": "src/routes/playlists_v2.ts:829",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/items/reorder",
     "source": "src/routes/playlists_v2.ts:885",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",

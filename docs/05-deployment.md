@@ -51,7 +51,7 @@ cache:
   max_item_bytes: 1048576
 sources:
   directory: "data/sources"
-  manifest_file: "sources.yaml" # P4 根据真实旧任务填写
+  repo: "guoyue2010/lxmusic-" # 最新正式 Release 的第一个 ZIP
   github_token_env: "GITHUB_TOKEN"
   allow_empty: false
 mail:
