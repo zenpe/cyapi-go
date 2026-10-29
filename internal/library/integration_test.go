@@ -67,7 +67,7 @@ func open(t *testing.T, driver, dsn string) *persistence.Database {
 	t.Cleanup(func() { d.Close() })
 	return d
 }
-func setup(t *testing.T, driver string) *fixture {
+func setup(t *testing.T, driver string, providers ...library.RemoteProvider) *fixture {
 	t.Helper()
 	var db *persistence.Database
 	if driver == "sqlite" {
@@ -111,8 +111,12 @@ func setup(t *testing.T, driver string) *fixture {
 		t.Fatal(e)
 	}
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
-	service := library.New(librarystore.New(db.ORM))
-	routes := library.NewHandler(service, authRoutes.Protect, log)
+	store := librarystore.New(db.ORM)
+	service := library.New(store)
+	if len(providers) > 0 {
+		service = library.NewWithRemote(store, store, providers[0])
+	}
+	routes := library.NewHandler(service, authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	handler := server.NewHandler(config.Defaults().Server, db, log, authRoutes.Register, routes.Register)
 	signer, _ := auth.NewSigner(secret, time.Hour)
 	tokens := map[int]string{}

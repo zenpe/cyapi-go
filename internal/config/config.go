@@ -66,9 +66,13 @@ type Mail struct {
 	SenderEmail string `yaml:"sender_email"`
 }
 type Providers struct {
-	NeteaseCookieEnv string `yaml:"netease_cookie_env"`
-	QQCookieEnv      string `yaml:"qq_cookie_env"`
-	KugouCookieEnv   string `yaml:"kugou_cookie_env"`
+	MaxConcurrent         int           `yaml:"max_concurrent"`
+	RequestTimeout        time.Duration `yaml:"request_timeout"`
+	UserRequestsPerMinute int           `yaml:"user_requests_per_minute"`
+	IPRequestsPerMinute   int           `yaml:"ip_requests_per_minute"`
+	NeteaseCookieEnv      string        `yaml:"netease_cookie_env"`
+	QQCookieEnv           string        `yaml:"qq_cookie_env"`
+	KugouCookieEnv        string        `yaml:"kugou_cookie_env"`
 }
 
 func Defaults() Config {
@@ -79,7 +83,7 @@ func Defaults() Config {
 	c.Cache = Cache{MaxBytes: 16 << 20, MaxEntries: 2000, MaxItemBytes: 1 << 20}
 	c.Sources = Sources{Repo: "guoyue2010/lxmusic-", MaxZipBytes: 512 << 20, MaxFileBytes: 64 << 20, MaxTotalBytes: 2 << 30, MaxFiles: 10000, ReserveBytes: 1 << 30, Timeout: 10 * time.Minute, Directory: "data/sources", GitHubTokenEnv: "GITHUB_TOKEN"}
 	c.Mail = Mail{Provider: "brevo", APIKeyEnv: "BREVO_API_KEY", SenderName: "CyreneMusic", AppName: "CyreneMusic"}
-	c.Providers = Providers{"NETEASE_COOKIE", "QQ_COOKIE", "KUGOU_COOKIE"}
+	c.Providers = Providers{MaxConcurrent: 4, RequestTimeout: 8 * time.Second, UserRequestsPerMinute: 120, IPRequestsPerMinute: 300, NeteaseCookieEnv: "NETEASE_COOKIE", QQCookieEnv: "QQ_COOKIE", KugouCookieEnv: "KUGOU_COOKIE"}
 	return c
 }
 
@@ -184,6 +188,9 @@ func (c Config) Validate() error {
 	}
 	if c.Cache.MaxBytes < 0 || c.Cache.MaxEntries < 0 || c.Cache.MaxItemBytes < 0 || c.Cache.MaxItemBytes > c.Cache.MaxBytes {
 		return errors.New("invalid cache capacity")
+	}
+	if c.Providers.MaxConcurrent < 1 || c.Providers.MaxConcurrent > 16 || c.Providers.RequestTimeout < time.Second || c.Providers.RequestTimeout > 20*time.Second || c.Providers.UserRequestsPerMinute < 1 || c.Providers.IPRequestsPerMinute < 1 {
+		return errors.New("invalid provider request limits")
 	}
 	if c.Sources.Timeout < time.Second || c.Sources.Timeout > time.Hour {
 		return errors.New("sources.timeout must be between 1s and 1h")

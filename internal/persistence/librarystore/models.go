@@ -11,6 +11,7 @@ type playlist struct {
 	IsDefault                      int
 	Source, SourcePlaylistID       *string
 	ContentRevision, OrderRevision int64
+	BindingVersion, SyncRevision   int64
 	ActiveSnapshotID               *int64
 	SyncStatus                     string
 	LastSyncedAt                   *string

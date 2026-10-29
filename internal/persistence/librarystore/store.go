@@ -208,12 +208,8 @@ func (s *Store) Write(ctx context.Context, user int64, c library.Command) (libra
 		if e := tx.Model(&operation{}).Where("user_id = ? AND operation_id = ?", user, c.OperationID).Updates(map[string]any{"status": status, "response_json": result}).Error; e != nil {
 			return e
 		}
-		next := s.nextPrune.Load()
-		if now.Unix() >= next && s.nextPrune.CompareAndSwap(next, now.Unix()+60) {
-			expired := tx.Model(&operation{}).Select("user_id, operation_id").Where("expires_at <= ?", at).Order("expires_at").Limit(100)
-			if e := tx.Where("(user_id, operation_id) IN (?)", expired).Delete(&operation{}).Error; e != nil {
-				return e
-			}
+		if e := s.pruneOperations(tx, now); e != nil {
+			return e
 		}
 		return nil
 	})
@@ -271,6 +267,9 @@ func (s *Store) mutate(tx *gorm.DB, user int64, c library.Command, at string) (l
 			return library.Result{}, e
 		}
 		return library.OK(map[string]any{"message": "删除成功"}), nil
+	}
+	if c.Kind == "copy" {
+		return copySnapshot(tx, user, p, c, at)
 	}
 	if p.Type != "local" {
 		return library.Result{}, library.Fail(409, "SYNCED_PLAYLIST_READ_ONLY", "同步歌单为只读")
@@ -430,4 +429,13 @@ func (s *Store) mutate(tx *gorm.DB, user int64, c library.Command, at string) (l
 		return resultPlaylist(tx, user, p.ID, map[string]any{})
 	}
 	return library.Result{}, fmt.Errorf("unsupported library command %q", c.Kind)
+}
+
+func (s *Store) pruneOperations(tx *gorm.DB, now time.Time) error {
+	next := s.nextPrune.Load()
+	if now.Unix() < next || !s.nextPrune.CompareAndSwap(next, now.Unix()+60) {
+		return nil
+	}
+	expired := tx.Model(&operation{}).Select("user_id, operation_id").Where("expires_at <= ?", now.UTC().Format(stamp)).Order("expires_at").Limit(100)
+	return tx.Where("(user_id, operation_id) IN (?)", expired).Delete(&operation{}).Error
 }

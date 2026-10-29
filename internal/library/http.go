@@ -14,18 +14,24 @@ import (
 )
 
 type Handler struct {
-	service *Service
-	protect func(http.HandlerFunc) http.HandlerFunc
-	log     *slog.Logger
+	service       *Service
+	protect       func(http.HandlerFunc) http.HandlerFunc
+	remoteProtect func(http.HandlerFunc) http.HandlerFunc
+	log           *slog.Logger
 }
 
 func NewHandler(s *Service, protect func(http.HandlerFunc) http.HandlerFunc, log *slog.Logger) *Handler {
-	return &Handler{s, protect, log}
+	return &Handler{service: s, protect: protect, log: log}
 }
 func (h *Handler) Register(mux *http.ServeMux) {
 	for pattern, kind := range map[string]string{"GET /favorites": "favorites", "GET /playlists": "playlists", "GET /playlists/check-track": "check", "GET /playlists/{playlistId}/tracks": "tracks"} {
 		mux.HandleFunc(pattern, h.protect(h.read(kind)))
 	}
+	guard := h.remoteProtect
+	if guard == nil {
+		guard = h.protect
+	}
+	h.RegisterRemote(mux, guard)
 	mux.HandleFunc("POST /favorites", h.protect(h.favorite))
 	mux.HandleFunc("DELETE /favorites/{trackId}/{source}", h.protect(h.unfavorite))
 	for pattern, kind := range map[string]string{"POST /playlists": "create", "PUT /playlists/{playlistId}": "rename", "DELETE /playlists/{playlistId}": "delete", "POST /playlists/{playlistId}/delete": "delete", "POST /playlists/{playlistId}/tracks": "add", "POST /playlists/{playlistId}/tracks/batch": "batch-add", "DELETE /playlists/{playlistId}/items/{itemId}": "remove", "POST /playlists/{playlistId}/items/batch-remove": "batch-remove", "POST /playlists/{playlistId}/items/{itemId}/replace": "replace", "POST /playlists/{playlistId}/items/reorder": "reorder"} {

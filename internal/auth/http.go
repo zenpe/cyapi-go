@@ -40,6 +40,9 @@ type userKey struct{}
 
 func CurrentUser(ctx context.Context) *User { u, _ := ctx.Value(userKey{}).(*User); return u }
 func (h *Handler) Protect(next http.HandlerFunc) http.HandlerFunc {
+	return h.ProtectFor(next, 5*time.Second)
+}
+func (h *Handler) ProtectFor(next http.HandlerFunc, budget time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fields := strings.Fields(r.Header.Get("Authorization"))
 		if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
@@ -53,7 +56,10 @@ func (h *Handler) Protect(next http.HandlerFunc) http.HandlerFunc {
 			h.failure(w, err)
 			return
 		}
-		next(w, r.WithContext(context.WithValue(ctx, userKey{}, user)))
+		cancel()
+		work, stop := context.WithTimeout(r.Context(), budget)
+		defer stop()
+		next(w, r.WithContext(context.WithValue(work, userKey{}, user)))
 	}
 }
 func (h *Handler) endpoint(fn func(context.Context, map[string]string, string) (map[string]any, error)) http.HandlerFunc {

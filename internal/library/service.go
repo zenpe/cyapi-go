@@ -62,16 +62,19 @@ type Query struct {
 	TrackID, Source string
 }
 type Command struct {
-	Kind, OperationID, Name string
-	PlaylistID, ItemID      int64
-	Track                   Track
-	Tracks                  []Track
-	ItemIDs                 []int64
-	ExpectedOrderRevision   int64
+	Kind, OperationID, Name  string
+	Source, SourcePlaylistID string
+	PlaylistID, ItemID       int64
+	Track                    Track
+	Tracks                   []Track
+	ItemIDs                  []int64
+	ExpectedOrderRevision    int64
 }
 
 func (c Command) Scope() string {
 	switch c.Kind {
+	case "follow":
+		return "playlist:follow:" + c.Source + ":" + c.SourcePlaylistID
 	case "create":
 		return "playlist:create"
 	case "add":
@@ -95,9 +98,14 @@ type Store interface {
 	AddFavorite(context.Context, int64, Track) (Result, error)
 	DeleteFavorite(context.Context, int64, string, string) (Result, error)
 }
-type Service struct{ store Store }
+type Service struct {
+	store       Store
+	remote      RemoteStore
+	provider    RemoteProvider
+	remoteSlots chan struct{}
+}
 
-func New(s Store) *Service  { return &Service{s} }
+func New(s Store) *Service  { return &Service{store: s} }
 func validID(id int64) bool { return id > 0 && id <= MaxID }
 func normalizeTrack(t Track) (Track, error) {
 	t.TrackID = strings.TrimSpace(t.TrackID)

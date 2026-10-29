@@ -19,9 +19,11 @@ import (
 	"cyapi-go/internal/config"
 	"cyapi-go/internal/library"
 	"cyapi-go/internal/mail"
+	"cyapi-go/internal/music"
 	"cyapi-go/internal/persistence"
 	"cyapi-go/internal/persistence/authstore"
 	"cyapi-go/internal/persistence/librarystore"
+	"cyapi-go/internal/providers/netease"
 	"cyapi-go/internal/server"
 	"cyapi-go/internal/sources"
 )
@@ -161,18 +163,30 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	cookie := os.Getenv(c.Providers.NeteaseCookieEnv)
+	neteaseClient, err := netease.New(netease.Options{Cookie: cookie, MaxConcurrent: c.Providers.MaxConcurrent, RequestTimeout: c.Providers.RequestTimeout})
+	if err != nil {
+		return err
+	}
+	defer neteaseClient.Close()
+	musicService, err := music.New(neteaseClient, music.Options{MaxBytes: c.Cache.MaxBytes, MaxEntries: c.Cache.MaxEntries, MaxItemBytes: c.Cache.MaxItemBytes, PrivateCache: cookie != "", UserRequestsPerMinute: c.Providers.UserRequestsPerMinute, IPRequestsPerMinute: c.Providers.IPRequestsPerMinute})
+	if err != nil {
+		return err
+	}
 	sourceFiles, err := sourceManager(c)
 	if err != nil {
 		return err
 	}
 	sourceRoutes := sources.NewHandler(sourceFiles, c.Server.PublicBaseURL, log)
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
-	libraryRoutes := library.NewHandler(library.New(librarystore.New(db.ORM)), authRoutes.Protect, log)
+	musicRoutes := music.NewHandler(musicService, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
+	libraryStore := librarystore.New(db.ORM)
+	libraryRoutes := library.NewHandler(library.NewWithRemote(libraryStore, libraryStore, neteaseClient), authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	listener, err := net.Listen("tcp", c.Server.Listen)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register)
+	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register)
 }
 
 func serveListener(ctx context.Context, c config.Server, db server.Readiness, log *slog.Logger, listener net.Listener, register ...func(*http.ServeMux)) error {

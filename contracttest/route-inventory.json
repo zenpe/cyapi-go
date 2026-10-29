@@ -194,13 +194,13 @@
     "method": "GET",
     "path": "/playlist",
     "source": "src/routes/compat.ts:41",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
     "path": "/album",
     "source": "src/routes/compat.ts:62",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -553,7 +553,7 @@
     "method": "GET",
     "path": "/lyrics/netease",
     "source": "src/routes/lyrics.ts:52",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -571,13 +571,13 @@
     "method": "POST",
     "path": "/search",
     "source": "src/routes/music.ts:10",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/song",
     "source": "src/routes/music.ts:25",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "GET",
@@ -643,7 +643,7 @@
     "method": "POST",
     "path": "/playlists/follow",
     "source": "src/routes/playlists_v2.ts:517",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "PUT",
@@ -709,13 +709,13 @@
     "method": "POST",
     "path": "/playlists/:playlistId/sync",
     "source": "src/routes/playlists_v2.ts:936",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",
     "path": "/playlists/:playlistId/copy",
     "source": "src/routes/playlists_v2.ts:974",
-    "status": "pending"
+    "status": "implemented"
   },
   {
     "method": "POST",

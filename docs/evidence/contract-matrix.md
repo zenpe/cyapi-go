@@ -2,7 +2,7 @@
 
 账号重新注册，旧账号/密码/Token/关联用户数据均不导入。扫码登录暂不实现；B 站、抖音和 MPD 排除。pending 表示尚未实现。
 
-旧代码路由 123 项：排除 11 项，扫码暂缓 10 项，已实现根路径、账号、收藏/本地歌单和音源接口 26 项；新增健康接口 2 项已实现。
+旧代码路由 123 项：排除 11 项，扫码暂缓 10 项，已实现根路径、账号、收藏/本地歌单、音源、首批网易云及远程歌单接口 34 项；新增健康接口 2 项已实现。
 
 | 方法 | 路径 | 状态 |
 | --- | --- | --- |
@@ -37,8 +37,8 @@
 | GET | `/mpd/:name` | excluded |
 | GET | `/version/latest` | pending |
 | GET | `/toplists` | pending |
-| GET | `/playlist` | pending |
-| GET | `/album` | pending |
+| GET | `/playlist` | implemented |
+| GET | `/album` | implemented |
 | GET | `/netease/top/playlist` | pending |
 | GET | `/netease/playlist/highquality/tags` | pending |
 | GET | `/login/qr/key` | deferred |
@@ -96,11 +96,11 @@
 | GET | `/` | implemented |
 | GET | `/lx/sources` | implemented |
 | GET | `/lx/script` | implemented |
-| GET | `/lyrics/netease` | pending |
+| GET | `/lyrics/netease` | implemented |
 | GET | `/lyrics/qq` | pending |
 | GET | `/lyrics/kugou` | pending |
-| POST | `/search` | pending |
-| POST | `/song` | pending |
+| POST | `/search` | implemented |
+| POST | `/song` | implemented |
 | GET | `/qq/search` | pending |
 | GET | `/qq/song` | pending |
 | GET | `/kugou/search` | pending |
@@ -111,7 +111,7 @@
 | GET | `/playlists` | implemented |
 | GET | `/playlists/check-track` | implemented |
 | POST | `/playlists` | implemented |
-| POST | `/playlists/follow` | pending |
+| POST | `/playlists/follow` | implemented |
 | PUT | `/playlists/:playlistId` | implemented |
 | DELETE | `/playlists/:playlistId` | implemented |
 | POST | `/playlists/:playlistId/delete` | implemented |
@@ -122,8 +122,8 @@
 | POST | `/playlists/:playlistId/items/batch-remove` | implemented |
 | POST | `/playlists/:playlistId/items/:itemId/replace` | implemented |
 | POST | `/playlists/:playlistId/items/reorder` | implemented |
-| POST | `/playlists/:playlistId/sync` | pending |
-| POST | `/playlists/:playlistId/copy` | pending |
+| POST | `/playlists/:playlistId/sync` | implemented |
+| POST | `/playlists/:playlistId/copy` | implemented |
 | POST | `/stats/listening-time` | pending |
 | POST | `/stats/play-count` | pending |
 | GET | `/stats` | pending |

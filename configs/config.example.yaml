@@ -34,6 +34,10 @@ mail:
   api_key_env: "BREVO_API_KEY"
   sender_email: ""
 providers:
+  max_concurrent: 4
+  request_timeout: "8s"
+  user_requests_per_minute: 120
+  ip_requests_per_minute: 300
   netease_cookie_env: "NETEASE_COOKIE"
   qq_cookie_env: "QQ_COOKIE"
   kugou_cookie_env: "KUGOU_COOKIE"
