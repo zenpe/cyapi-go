@@ -66,3 +66,7 @@ flowchart TD
 ## NAS 一键安装
 
 参见 [NAS 原生安装与运维](docs/10-nas-install.md)。Linux 二进制在当前目录执行 `./cyapi install`，帮助使用 `./cyapi --help`，诊断使用 `./cyapi doctor`。
+
+## 自动发行
+
+推送 `v1.0.0` 等版本标签后，GitHub Actions 自动测试并发布 Linux/Windows 程序、NAS 安装包与 SHA256SUMS；也可手动运行并保留为草稿。详见 [GitHub Releases](docs/11-github-releases.md)。

@@ -1,0 +1,145 @@
+name: Build and release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v1.0.0 or v1.0.0-rc.1
+        required: true
+        type: string
+      draft:
+        description: Keep the release as a draft
+        required: true
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+      draft: ${{ steps.version.outputs.draft }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and validate the release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          KEEP_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Expected a version tag such as v1.0.0 or v1.0.0-rc.1" >&2
+            exit 1
+          fi
+          sha=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "draft=$KEEP_DRAFT" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            echo 'prerelease=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'prerelease=false' >> "$GITHUB_OUTPUT"
+          fi
+  verify:
+    needs: resolve
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+  build:
+    needs: [resolve, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build binaries and packages
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: sh scripts/release.sh "$RELEASE_TAG"
+      - name: Verify packages
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          tar -tzf cyapi-nas-linux-amd64.tar.gz
+          tar -tzf cyapi-nas-linux-arm64.tar.gz
+          unzip -l cyapi-windows-amd64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.resolve.outputs.tag }}
+          path: |
+            dist/cyapi-linux-amd64
+            dist/cyapi-linux-arm64
+            dist/cyapi-windows-amd64.exe
+            dist/cyapi-nas-linux-amd64.tar.gz
+            dist/cyapi-nas-linux-arm64.tar.gz
+            dist/cyapi-windows-amd64.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.resolve.outputs.tag }}
+          path: release
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+          KEEP_DRAFT: ${{ needs.resolve.outputs.draft }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum -c SHA256SUMS
+          # Resolve once more before publishing in case a tag moved during the build.
+          actual_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+          if [[ "$actual_sha" != "$RELEASE_SHA" ]]; then
+            echo 'Release tag changed during the build; refusing to publish.' >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --json isDraft > existing.json 2>/dev/null; then
+            if [[ "$(jq -r .isDraft existing.json)" != true ]]; then
+              echo 'A published release already exists; it will not be overwritten.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --target "$RELEASE_SHA" \
+              --title "$RELEASE_TAG" --generate-notes --draft
+          fi
+          # Retry uploads only while the release remains a draft.
+          gh release upload "$RELEASE_TAG" --clobber \
+            cyapi-linux-amd64 cyapi-linux-arm64 cyapi-windows-amd64.exe \
+            cyapi-nas-linux-amd64.tar.gz cyapi-nas-linux-arm64.tar.gz \
+            cyapi-windows-amd64.zip SHA256SUMS
+          gh release edit "$RELEASE_TAG" --prerelease="$PRERELEASE"
+          if [[ "$KEEP_DRAFT" != true ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi

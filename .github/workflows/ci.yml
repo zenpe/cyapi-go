@@ -1,10 +1,21 @@
 name: Go CI
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to test when called by the release workflow
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -20,13 +31,16 @@ jobs:
       CYAPI_TEST_POSTGRES_DSN: postgres://cyapi_test:test-only-password@127.0.0.1:5432/cyapi_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.3'
+          go-version-file: go.mod
           cache: true
       - run: go mod verify
       - run: go vet ./...
-      - run: go test -race ./... -count=1
+      - run: go test -race ./... -count=1 -timeout=10m
       - name: Pure Go Linux builds
         run: |
           mkdir -p dist

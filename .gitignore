@@ -16,3 +16,11 @@ coverage.out
 /packaging/config.yaml
 /packaging/data/
 /packaging/backups/
+
+/secrets.env
+/logs/
+/start.sh
+/cyapi
+
+__pycache__/
+*.pyc

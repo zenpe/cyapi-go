@@ -74,3 +74,12 @@ serve 保持显式 schema 检查、不自动迁移，新增实例锁、受限日
 验证：完整 go test ./... -count=1 -timeout=120s 通过；最后调整后受影响命令/config/backup 测试通过；go vet ./...、go mod verify 通过。升级注入备份失败、迁移失败、readiness失败及成功路径通过；断网维护测试确认音源失败后恢复备份仍成功并可取消退出。Windows 实际发布程序在独立临时目录完成首次/重复安装（密钥摘要不变）、bootstrap账号登录、在线恢复备份、status/doctor、运行中迁移拒绝。未改变8080上的既有测试服务。
 
 产物：dist/cyapi-windows-amd64.exe、Linux amd64/arm64 二进制与 cyapi-nas-linux-{arch}.tar.gz 安装包、SHA256SUMS；版本 nas-ops-dev，commit 标记 663d21a+working，表示未提交工作树构建。NAS Linux/systemd/ACL、真实TTY隐藏输入、真实升级停机恢复、frp、断电和PostgreSQL dump/restore尚未在目标设备验证；跨编译和模拟测试不代表这些验收已完成。
+
+
+## 2026-10-29 GitHub 自动构建发行
+
+新增标签 vX.Y.Z / vX.Y.Z-prerelease 触发的 Build and release，以及手动选择已有标签（默认草稿）。按确切 commit 复用 Go CI，验证通过后构建 Linux amd64/arm64、Windows amd64，显式打包两个 NAS tar.gz、Windows zip 和六文件 SHA256SUMS。发布 job 才有 contents:write，内置 token 上传完整草稿后才公开；已公开版本不覆盖，发布前核对标签未移动。CI 读取 go.mod 工具链，不在仓库保存个人 token。
+
+本地 scripts/release.ps1 完成三平台构建；校验六文件摘要、归档仅含程序和 INSTALL.md、Linux chmod755、重复打包一致性，release.sh 通过 bash -n。补充 secrets.env/logs/start.sh 等本地安装产物的忽略规则。
+
+读取首轮远程 CI（40847449775）发现真实 race 环境中的万首歌单提交5秒超时和并发迁移 SQLITE_BUSY。成功快照提交改为使用原请求预算（独立短时限仅用于失败清理）；迁移仅在 WAL/BEGIN 获取锁前做有期限的 BUSY/LOCKED 重试，不重放迁移正文。相关 library/persistence 测试通过，并发迁移及取消测试连续10轮通过。GitHub 上的最终 CI 状态以对应 Actions run 为准。
