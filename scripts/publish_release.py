@@ -24,9 +24,16 @@ def release_info(repo, tag):
     try:
         return json.loads(gh("api", f"repos/{repo}/releases/tags/{tag}"))
     except subprocess.CalledProcessError as error:
-        if "HTTP 404" in (error.stderr or ""):
-            return None
-        raise
+        if "HTTP 404" not in (error.stderr or ""):
+            raise
+    # GitHub's tag endpoint can hide draft releases, including one just created
+    # by this workflow. The authenticated release list includes those drafts.
+    pages = json.loads(gh("api", f"repos/{repo}/releases?per_page=100", "--paginate", "--slurp"))
+    for page in pages:
+        for release in page:
+            if release["tag_name"] == tag:
+                return release
+    return None
 
 
 def checksum(path):
@@ -78,6 +85,8 @@ def publish(directory, repo, tag, sha, keep_draft, prerelease):
         gh("release", "create", tag, "--repo", repo, "--verify-tag", "--target", sha,
            "--title", tag, "--generate-notes", "--draft")
         info = release_info(repo, tag)
+        if info is None:
+            raise ValueError("Created release is not visible yet; rerun to resume")
     missing = verify_remote(directory, repo, tag, info, hashes)
     if missing:
         gh("release", "upload", tag, "--repo", repo, *[str(directory / name) for name in missing])

@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -89,6 +90,34 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Tag changed"):
             self.publish()
         self.assertFalse(any(call[0] == "release" for call in self.calls))
+
+
+class ReleaseLookupTests(unittest.TestCase):
+    def test_public_release_uses_tag_endpoint(self):
+        release = {"tag_name": "v0.0.2", "draft": False, "assets": []}
+        with patch.object(publisher, "gh", return_value=json.dumps(release)) as call:
+            self.assertEqual(publisher.release_info("owner/repo", "v0.0.2"), release)
+            self.assertEqual(call.call_count, 1)
+
+    def test_draft_found_in_paginated_authenticated_list(self):
+        release = {"tag_name": "v0.0.2", "draft": True, "assets": []}
+        missing = subprocess.CalledProcessError(1, "gh", stderr="HTTP 404: Not Found")
+        pages = [[{"tag_name": "v0.0.1"}], [release]]
+        with patch.object(publisher, "gh", side_effect=[missing, json.dumps(pages)]) as call:
+            self.assertEqual(publisher.release_info("owner/repo", "v0.0.2"), release)
+            self.assertEqual(call.call_args.args, ("api", "repos/owner/repo/releases?per_page=100", "--paginate", "--slurp"))
+
+    def test_nonexistent_release(self):
+        missing = subprocess.CalledProcessError(1, "gh", stderr="HTTP 404: Not Found")
+        with patch.object(publisher, "gh", side_effect=[missing, "[]"]):
+            self.assertIsNone(publisher.release_info("owner/repo", "v0.0.2"))
+
+    def test_auth_failure_is_not_treated_as_missing(self):
+        denied = subprocess.CalledProcessError(1, "gh", stderr="HTTP 403: Forbidden")
+        with patch.object(publisher, "gh", side_effect=denied) as call:
+            with self.assertRaises(subprocess.CalledProcessError):
+                publisher.release_info("owner/repo", "v0.0.2")
+            self.assertEqual(call.call_count, 1)
 
 
 if __name__ == "__main__":
