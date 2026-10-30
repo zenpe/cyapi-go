@@ -52,7 +52,7 @@ def verify(root, port):
         headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=10) as response:
         body = json.load(response)
-        assert body["status"] == 200, body
+        assert body["code"] == 200 and body["data"].get("token"), body
     uid = pwd.getpwnam("cyapi").pw_uid
     for name in ["config.yaml", "secrets.env", "data/cyapi.db", "logs/server.log"]:
         path = root / name
