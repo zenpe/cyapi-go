@@ -242,7 +242,7 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sourceRoutes := sources.NewHandler(sourceFiles, c.Server.PublicBaseURL, log)
+	sourceRoutes := sources.NewHandler(sourceFiles, log)
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
 	musicRoutes := music.NewHandler(musicService, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	libraryStore := librarystore.New(db.ORM)
@@ -258,9 +258,6 @@ func run(args []string, log *slog.Logger) error {
 	}
 	if !mailer.Ready() {
 		log.Warn("mail is not configured; public registration and password recovery are unavailable")
-	}
-	if c.Server.PublicBaseURL == "" {
-		log.Warn("public_base_url is not configured; set it before using source download links")
 	}
 	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
 	waitMaintenance := startMaintenance(maintenanceCtx, c, *path, db, sourceFiles, log)

@@ -22,7 +22,7 @@ go run ./cmd/cyapi serve --config config.yaml
 
 相对文件路径以配置文件目录为基准。未知 YAML 字段、多个 YAML 文档和超过 1 MiB 的配置被拒绝；错误不回显 YAML 内容。数据库 DSN 和配置整体不输出到日志。
 
-当前支持的覆盖变量：CYAPI_LISTEN、CYAPI_PUBLIC_BASE_URL、CYAPI_DATABASE_DRIVER、CYAPI_DATABASE_DSN。`database.dsn_env` 指定读取其他环境变量；CYAPI_DATABASE_DSN 优先。其他配置字段暂不提供通用环境变量映射。
+当前支持的覆盖变量：CYAPI_LISTEN、CYAPI_DATABASE_DRIVER、CYAPI_DATABASE_DSN。`database.dsn_env` 指定读取其他环境变量；CYAPI_DATABASE_DSN 优先。其他配置字段暂不提供通用环境变量映射。
 
 `auth.secret_env` 指向密钥环境变量；migrate/schema-status/version 不读取此密钥。mail 配置已用于 Brevo 验证码邮件；sources 已用于本地音源分发与 Release ZIP 同步，cache 已用于音乐响应缓存，providers 已接入网易云；QQ/酷狗配置为后续模块预留。
 
@@ -97,7 +97,7 @@ cyapi sources status --config /path/config.yaml
 cyapi sources rollback --config /path/config.yaml --generation g-...
 ```
 
-同步/状态/回滚不依赖业务数据库或 AUTH_SECRET；serve 使用相同 sources.directory，发布后自动可见，无需重启。公网下载地址取 server.public_base_url。默认同步预算要求至少 3.5 GiB 可用空间；这不是常驻内存或预分配磁盘占用，可按真实 ZIP 大小调整 max_zip_bytes/max_total_bytes/reserve_bytes。
+同步/状态/回滚不依赖业务数据库或 AUTH_SECRET；serve 使用相同 sources.directory，发布后自动可见，无需重启。音源下载地址跟随当前请求地址；HTTPS 终止于代理时，由可信代理传递 X-Forwarded-Proto。默认同步预算要求至少 3.5 GiB 可用空间；这不是常驻内存或预分配磁盘占用，可按真实 ZIP 大小调整 max_zip_bytes/max_total_bytes/reserve_bytes。
 
 ## 网易云音乐（首批）
 

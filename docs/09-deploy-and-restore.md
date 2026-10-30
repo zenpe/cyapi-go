@@ -6,7 +6,7 @@
 
 ## 二进制部署
 
-执行 scripts/release.sh 或 scripts/release.ps1 生成带版本/commit 的 Linux amd64、arm64 和 Windows amd64 产物及 SHA256SUMS。选择 NAS CPU 对应产物，校验摘要。生产采用 configs/config.example.yaml，设置绝对 database.dsn、sources.directory、public_base_url 和独立 CYAPI_AUTH_SECRET。以同一非特权用户运行 serve 和计划任务，数据库与 sources 目录只允许该用户写。
+执行 scripts/release.sh 或 scripts/release.ps1 生成带版本/commit 的 Linux amd64、arm64 和 Windows amd64 产物及 SHA256SUMS。选择 NAS CPU 对应产物，校验摘要。生产采用 configs/config.example.yaml，设置绝对 database.dsn、sources.directory和独立 CYAPI_AUTH_SECRET。以同一非特权用户运行 serve 和计划任务，数据库与 sources 目录只允许该用户写。
 
 顺序：先 `cyapi migrate --config /absolute/config.yaml`，再 `cyapi serve --config /absolute/config.yaml`。systemd 可参考 packaging/cyapi.service，调整用户、二进制、数据和配置路径。没有 systemd 的 NAS 使用自带任务/应用管理器运行同样命令；选择异常自动重启和开机启动。未知 schema 或未迁移时启动失败是正常保护。
 

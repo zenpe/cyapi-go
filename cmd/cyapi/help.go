@@ -9,7 +9,7 @@ import (
 )
 
 var commandHelp = map[string]string{
-	"install": `install [--dir DIRECTORY] [--public-url URL] [--listen HOST:PORT]
+	"install": `install [--dir DIRECTORY] [--listen HOST:PORT]
         [--service auto|systemd|none] [--user USER] [--non-interactive]
         [--username NAME --email ADDRESS]
 Install in the current directory by default. Creates configuration, secrets,
@@ -17,7 +17,7 @@ SQLite schema and the first account; preserves existing settings and data.
 Password is read without echo, or from CYAPI_INSTALL_PASSWORD for unattended use.
 Linux systemd registration requires root. The server runs as an unprivileged user.
 With --service none, a start.sh script is generated but autostart is not configured.
-Example: ./cyapi install --public-url https://api.example.com`,
+Example: ./cyapi install --listen 0.0.0.0:8080`,
 	"serve": `serve [--config config.yaml] [--log-file PATH]
 Run the API in the foreground. Validates schema; never migrates it automatically.
 Installed services use bounded rotating logs. Stop with SIGTERM / Ctrl+C.

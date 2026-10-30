@@ -39,7 +39,6 @@ type Config struct {
 }
 type Server struct {
 	Listen             string        `yaml:"listen"`
-	PublicBaseURL      string        `yaml:"public_base_url"`
 	TrustedProxies     []string      `yaml:"trusted_proxies"`
 	CORSAllowedOrigins []string      `yaml:"cors_allowed_origins"`
 	ShutdownGrace      time.Duration `yaml:"shutdown_grace"`
@@ -146,7 +145,7 @@ func Load(path string) (Config, error) {
 		key  string
 		dest *string
 	}{
-		{"CYAPI_LISTEN", &c.Server.Listen}, {"CYAPI_PUBLIC_BASE_URL", &c.Server.PublicBaseURL},
+		{"CYAPI_LISTEN", &c.Server.Listen},
 		{"CYAPI_DATABASE_DRIVER", &c.Database.Driver}, {"CYAPI_DATABASE_DSN", &c.Database.DSN},
 	} {
 		if value, ok := os.LookupEnv(v.key); ok {
@@ -188,12 +187,6 @@ func (c Config) Validate() error {
 	}
 	if c.Server.ShutdownGrace <= 0 {
 		return errors.New("shutdown_grace must be positive")
-	}
-	if c.Server.PublicBaseURL != "" {
-		u, err := url.Parse(c.Server.PublicBaseURL)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-			return errors.New("public_base_url must be an HTTP(S) origin")
-		}
 	}
 	for _, p := range c.Server.TrustedProxies {
 		if _, err := netip.ParsePrefix(p); err != nil {

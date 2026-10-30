@@ -33,7 +33,6 @@ Compose 镜像内仅包含程序和运行必需文件，宿主 data 挂载至 /d
 ```yaml
 server:
   listen: "127.0.0.1:8080"       # 容器内按网络模式改为适当地址
-  public_base_url: "https://api.example.com"
   trusted_proxies: []           # 填入实际可信的直接代理地址/CIDR
   cors_allowed_origins: []      # 按实际 Web 客户端填写
   shutdown_grace: "30s"
@@ -76,7 +75,7 @@ providers:
 
 frp TCP 隧道不会自动生成正确的 HTTP 原始客户端 IP。必须测试两个公网客户端分属不同限流桶，以及伪造请求头不能切换限流身份。禁止公网绕过入口直连 frps 业务转发端口。
 
-外部绝对 URL 优先使用固定 public_base_url，不依赖任意 Host。保留 Authorization 和必要查询参数；不记录二维码 query。反向代理只对明确白名单内容缓存，不绕过后端鉴权缓存用户请求。
+音源下载链接使用当前请求的 Host 和协议；仅当直接连接来自 trusted_proxies 时接受单值 X-Forwarded-Host/X-Forwarded-Proto。入口应保留原始 Host，并覆盖这两个转发头，协议使用 http 或 https。保留 Authorization 和必要查询参数；不记录二维码 query。反向代理只对明确白名单内容缓存，不绕过后端鉴权缓存用户请求。
 
 普通 API 超时大于已定义的业务总预算；验证客户端解析和音源下载。首期不开放媒体代理，不能只用根路径 200 判定业务部署成功。
 

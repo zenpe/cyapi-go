@@ -140,6 +140,12 @@ func NewHandler(c config.Server, db Readiness, log *slog.Logger, register ...fun
 			rec.WriteHeader(http.StatusNoContent)
 			return
 		}
+		var originOK bool
+		r, originOK = withRequestOrigin(r, prefixes)
+		if !originOK {
+			respond(rec, http.StatusBadRequest, map[string]any{"status": 400, "message": "Invalid request origin"})
+			return
+		}
 		r = r.WithContext(context.WithValue(r.Context(), clientIPKey{}, clientIP(r, prefixes)))
 		r.Body = http.MaxBytesReader(rec, r.Body, 1<<20)
 		mux.ServeHTTP(rec, r)

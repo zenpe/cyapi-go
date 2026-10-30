@@ -147,9 +147,6 @@ func inspectCommand(args []string, doctor bool) error {
 				report("WARN", key+" is not configured; platform access may be limited")
 			}
 		}
-		if c.Server.PublicBaseURL == "" {
-			report("WARN", "Set server.public_base_url for client source-script downloads")
-		}
 		manager, e := sourceManager(c)
 		if e != nil {
 			report("FAIL", "Source configuration is invalid")

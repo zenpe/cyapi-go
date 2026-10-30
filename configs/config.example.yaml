@@ -10,7 +10,6 @@ maintenance:
 
 server:
   listen: "127.0.0.1:8080"
-  public_base_url: "http://localhost:8080"
   trusted_proxies: []
   cors_allowed_origins: []
   shutdown_grace: "30s"

@@ -32,7 +32,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 mkdir -p /vol1/appdata/cyapi
 # 将对应架构的安装包解压到该目录，再执行：
 cd /vol1/appdata/cyapi
-sudo ./cyapi install --public-url https://api.example.com
+sudo ./cyapi install
 ```
 
 升级下载独立 Linux 程序，改名 cyapi-new，按 SHA256SUMS 中该程序的摘要执行 upgrade --file ./cyapi-new --sha256 摘要。首次上线仍须在 NAS 验证 systemd、权限、frp 和恢复流程。

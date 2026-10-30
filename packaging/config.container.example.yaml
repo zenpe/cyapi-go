@@ -1,6 +1,5 @@
 server:
   listen: "0.0.0.0:8080"
-  public_base_url: "https://api.example.com"
   trusted_proxies: []
   cors_allowed_origins: []
 database:

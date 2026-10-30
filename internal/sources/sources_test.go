@@ -137,13 +137,13 @@ func emptyStaging(t *testing.T, m *Manager) {
 }
 func handler(m *Manager) http.Handler {
 	mux := http.NewServeMux()
-	NewHandler(m, "https://music.example.com", slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux)
+	NewHandler(m, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux)
 	return mux
 }
 func request(t *testing.T, h http.Handler, target string, want int) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest("GET", target, nil)
-	r.Host = "attacker.example"
+	r.Host = "nas.local:8080"
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != want {
@@ -182,8 +182,27 @@ func TestReleaseSyncHTTPAndRollback(t *testing.T) {
 	if e = json.Unmarshal(w.Body.Bytes(), &list); e != nil {
 		t.Fatal(e)
 	}
-	if len(list.Sources) != 2 || list.Sources[0].Path != "nested/a.js" || list.Sources[1].Path != "中文源.js" || list.Sources[0].Directory != "nested" || !strings.HasPrefix(list.Sources[0].DownloadURL, "https://music.example.com/") {
+	if len(list.Sources) != 2 || list.Sources[0].Path != "nested/a.js" || list.Sources[1].Path != "中文源.js" || list.Sources[0].Directory != "nested" || !strings.HasPrefix(list.Sources[0].DownloadURL, "http://nas.local:8080/") {
 		t.Fatal(list)
+	}
+	// Switching between LAN and public HTTPS must not reuse a configured origin.
+	for _, origin := range []string{"http://192.168.3.100:8080", "https://music.example.com", "http://[::1]:8080"} {
+		req := httptest.NewRequest("GET", origin+"/lx/sources", nil)
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, req)
+		if response.Code != 200 {
+			t.Fatal(response.Code, response.Body.String())
+		}
+		if e = json.Unmarshal(response.Body.Bytes(), &list); e != nil {
+			t.Fatal(e)
+		}
+		for _, source := range list.Sources {
+			u, err := url.Parse(source.DownloadURL)
+			if err != nil || !strings.HasPrefix(source.DownloadURL, origin+"/lx/script?") || u.Query().Get("path") != source.Path {
+				t.Fatal("download URL does not follow request", source.DownloadURL)
+			}
+			request(t, h, u.RequestURI(), 200)
+		}
 	}
 	w = request(t, h, "/lx/script?path=nested%2Fa.js", 200)
 	if w.Body.String() != "// first script" || w.Header().Get("Content-Type") != "application/javascript" || w.Header().Get("ETag") == "" {

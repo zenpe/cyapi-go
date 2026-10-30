@@ -42,7 +42,6 @@ type installation struct {
 func installCommand(args []string, log *slog.Logger) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	dir := flags.String("dir", ".", "installation directory")
-	publicURL := flags.String("public-url", "", "public API origin")
 	listen := flags.String("listen", "127.0.0.1:8080", "listen address for a new installation")
 	service := flags.String("service", "auto", "auto, systemd or none")
 	serviceUser := flags.String("user", "", "unprivileged Linux service user (default cyapi)")
@@ -86,7 +85,6 @@ func installCommand(args []string, log *slog.Logger) error {
 	if _, e = os.Lstat(configPath); errors.Is(e, os.ErrNotExist) {
 		c := config.Defaults()
 		c.Maintenance.Enabled = true
-		c.Server.PublicBaseURL = *publicURL
 		c.Server.Listen = *listen
 		if e = c.Validate(); e != nil {
 			return e
@@ -307,11 +305,7 @@ func installCommand(args []string, log *slog.Logger) error {
 			fmt.Println("On systemd Linux, run install as root to register an unprivileged service.")
 		}
 	}
-	address := c.Server.PublicBaseURL
-	if address == "" {
-		address = healthOrigin(c.Server.Listen)
-		fmt.Println("Set server.public_base_url before public access and source-script downloads.")
-	}
+	address := healthOrigin(c.Server.Listen)
 	fmt.Println("Client API address:", address)
 	if c.Env(c.Mail.APIKeyEnv) == "" || c.Mail.SenderEmail == "" {
 		fmt.Println("Mail is not configured: use the local first account; public registration/password recovery are disabled.")

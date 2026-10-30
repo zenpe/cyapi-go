@@ -8,10 +8,10 @@
 mkdir -p /vol1/appdata/cyapi
 cd /vol1/appdata/cyapi
 chmod +x ./cyapi
-sudo ./cyapi install --public-url https://api.example.com
+sudo ./cyapi install
 ```
 
-默认使用执行时的当前目录；也可 --dir 指定目录。安装将目录转成绝对路径，生成 config.yaml、secrets.env、data/、backups/、logs/ 和 start.sh。配置/密钥仅在缺失时创建，已有数据库却缺少原密钥时拒绝生成替代密钥。已有配置不被命令行 public-url/listen 参数覆盖；这些参数只设置新配置，请修改已有配置后重启服务。
+默认使用执行时的当前目录；也可 --dir 指定目录。安装将目录转成绝对路径，生成 config.yaml、secrets.env、data/、backups/、logs/ 和 start.sh。配置/密钥仅在缺失时创建，已有数据库却缺少原密钥时拒绝生成替代密钥。已有配置不被命令行 listen 参数覆盖；这些参数只设置新配置，请修改已有配置后重启服务。
 
 首个账号交互输入用户名、QQ 邮箱和两次隐藏密码，不发送邮件；账号与公开注册采用相同字段校验。本地创建仅限 users 表为空，不提供公网免验证码入口。无人值守使用 --non-interactive --username NAME --email ADDRESS，密码仅从 CYAPI_INSTALL_PASSWORD 环境读取，不接受命令行密码参数，也不保存明文密码。未配置邮件时可用首个账号登录，公开注册/找回密码保持关闭。
 
@@ -26,7 +26,11 @@ Linux 有运行中的 systemd 且以 root 安装时，创建 cyapi 普通用户�
 
 此模式明确报告“未配置开机启动”；需要 NAS 任务管理器调用 start.sh 并配置重启。不要把当前 shell 的后台进程当作开机服务。非 root 的 auto 模式也只生成文件/脚本，不假装注册成功。已有 frpc 容器的网络路径需要按实际拓扑配置，install 不自动修改 frp、VPS、防火墙或 DNS。
 
-默认监听 127.0.0.1:8080，适合同机 frpc。手机局域网测试可在新安装时传 --listen 0.0.0.0:8080，并将 --public-url 设为手机可达的 NAS 地址。公网入口使用 HTTPS。填好邮件发送人、Brevo API key 和必要平台 Cookie 后重启服务生效；secrets.env 使用字面量 KEY=VALUE，不执行 shell 或变量展开，环境变量优先。密钥应稳定保存，不要把测试机器的账号数据库直接当作生产安装。
+默认监听 127.0.0.1:8080，适合同机 frpc。手机局域网测试可在新安装时传 --listen 0.0.0.0:8080。公网入口使用 HTTPS。填好邮件发送人、Brevo API key 和必要平台 Cookie 后重启服务生效；secrets.env 使用字面量 KEY=VALUE，不执行 shell 或变量展开，环境变量优先。密钥应稳定保存，不要把测试机器的账号数据库直接当作生产安装。
+
+音源下载链接自动跟随客户端访问地址，无需设置公网 URL。反向代理应保留 Host；HTTPS 在代理终止时，覆盖 X-Forwarded-Proto 为 https。如需转发外部域名，覆盖 X-Forwarded-Host。仅信任 server.trusted_proxies 中的实际直接代理地址，不默认信任本机或任意私网。
+
+从 v0.0.1 升级前，删除已有 config.yaml 中的 server.public_base_url 字段；配置解析仍严格拒绝未知字段。安装参数 --public-url 和环境变量 CYAPI_PUBLIC_BASE_URL 已移除。
 
 ## 帮助、状态和诊断
 

@@ -8,18 +8,18 @@ import (
 	"net/url"
 	"path"
 	"sort"
-	"strings"
 	"time"
+
+	"cyapi-go/internal/server"
 )
 
 type Handler struct {
 	manager *Manager
-	base    string
 	log     *slog.Logger
 }
 
-func NewHandler(m *Manager, publicBaseURL string, log *slog.Logger) *Handler {
-	return &Handler{m, strings.TrimRight(publicBaseURL, "/"), log}
+func NewHandler(m *Manager, log *slog.Logger) *Handler {
+	return &Handler{m, log}
 }
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /lx/sources", h.list)
@@ -33,10 +33,6 @@ func (h *Handler) failure(w http.ResponseWriter, status int, message string) {
 }
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if h.base == "" {
-		h.failure(w, 503, "音源公网地址尚未配置")
-		return
-	}
 	s, e := h.manager.Current()
 	if e != nil {
 		h.failure(w, 503, "暂时无法获取音源列表，请稍后重试")
@@ -62,7 +58,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			dir = ""
 		}
 		name := path.Base(entry.Path)
-		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir, "downloadUrl": h.base + "/lx/script?path=" + url.QueryEscape(entry.Path)})
+		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir, "downloadUrl": server.RequestOrigin(r) + "/lx/script?path=" + url.QueryEscape(entry.Path)})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": 200, "sources": out})
