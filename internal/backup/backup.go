@@ -34,6 +34,7 @@ type Options struct {
 	Output, DSN, Version, Commit, SourcesDirectory string
 	IncludeConfig                                  bool
 	ConfigPath, SecretsPath                        string
+	CredentialKeyPath                              string
 	Manager                                        *sources.Manager
 }
 
@@ -138,8 +139,48 @@ func Run(ctx context.Context, db *persistence.Database, o Options) (Manifest, er
 			return Manifest{}, errors.New("source directory cannot be inspected")
 		}
 	}
+
+	// The credential key is recovery material even for database-only backups.
+	keyPath := o.CredentialKeyPath
+	if keyPath == "" && o.ConfigPath != "" {
+		keyPath = filepath.Join(filepath.Dir(o.ConfigPath), "data", "netease.key")
+	}
+	var credentialCount int64
+	if db.ORM.Migrator().HasColumn("account_bindings", "credentials") {
+		if err := db.ORM.Table("account_bindings").Where("credentials <> ?", "").Count(&credentialCount).Error; err != nil {
+			return Manifest{}, errors.New("cannot inspect account credentials for backup")
+		}
+	}
+	if credentialCount > 0 && keyPath == "" {
+		return Manifest{}, errors.New("credential key path required to back up account bindings")
+	}
+	if keyPath != "" {
+		if info, err := os.Lstat(keyPath); err == nil {
+			if !info.Mode().IsRegular() || info.Size() != 32 {
+				return Manifest{}, errors.New("invalid netease key; backup not published")
+			}
+			digest, size, err := hashFile(ctx, keyPath)
+			if err != nil {
+				return Manifest{}, err
+			}
+			f, err := os.Open(keyPath)
+			if err != nil {
+				return Manifest{}, err
+			}
+			err = copySource(ctx, f, filepath.Join(stage, "netease.key"), size, digest)
+			f.Close()
+			if err != nil {
+				return Manifest{}, err
+			}
+			manifest.RecoveryFiles = map[string]string{"netease.key": digest}
+		} else if !errors.Is(err, os.ErrNotExist) || credentialCount > 0 {
+			return Manifest{}, errors.New("account credential key missing; backup not published")
+		}
+	}
 	if o.IncludeConfig {
-		manifest.RecoveryFiles = map[string]string{}
+		if manifest.RecoveryFiles == nil {
+			manifest.RecoveryFiles = map[string]string{}
+		}
 		for name, source := range map[string]string{"config.yaml": o.ConfigPath, "secrets.env": o.SecretsPath} {
 			if source == "" {
 				continue

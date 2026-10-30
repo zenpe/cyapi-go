@@ -422,3 +422,46 @@ func TestRemoteMaximumSnapshotAndCleanup(t *testing.T) {
 		})
 	}
 }
+
+func TestAtomicLocalImportAndBindingFence(t *testing.T) {
+	for _, driver := range []string{"sqlite", "postgres"} {
+		t.Run(driver, func(t *testing.T) {
+			var calls int
+			var revoke bool
+			var f *fixture
+			f = setup(t, driver, snapshotFunc(func(ctx context.Context, source, id string) (library.RemoteSnapshot, error) {
+				calls++
+				if revoke {
+					if e := f.db.ORM.Exec("UPDATE account_bindings SET revision=2,status='unbound' WHERE user_id=1 AND provider='netease'").Error; e != nil {
+						t.Fatal(e)
+					}
+				}
+				snap := remoteSnapshot("2", "1", "2")
+				rev := int64(1)
+				snap.AccountRevision = &rev
+				return snap, nil
+			}))
+			if e := f.db.ORM.Exec("INSERT INTO account_bindings(user_id,provider,payload_json,updated_at,revision,status,credentials) VALUES (1,'netease','{}','2026-10-30T00:00:00Z',1,'bound','test')").Error; e != nil {
+				t.Fatal(e)
+			}
+			r := f.request(1, "POST", "/playlists/import", follow("import"), 200)
+			if r.Playlist.Type != "local" || r.Playlist.TrackCount != 2 {
+				t.Fatal(r)
+			}
+			replay := f.request(1, "POST", "/playlists/import", follow("import"), 200)
+			if replay.Playlist.ID != r.Playlist.ID || calls != 1 {
+				t.Fatal("import replay duplicated work")
+			}
+			tracks := f.request(1, "GET", fmt.Sprintf("/playlists/%d/tracks", r.Playlist.ID), nil, 200).Tracks
+			if len(tracks) != 2 || tracks[0].TrackID != "2" || tracks[1].TrackID != "1" {
+				t.Fatal(tracks)
+			}
+			revoke = true
+			f.request(1, "POST", "/playlists/import", follow("stale-import"), 409)
+			var count int64
+			if e := f.db.ORM.Table("playlists").Where("user_id=1").Count(&count).Error; e != nil || count != 1 {
+				t.Fatal("partial or stale playlist published", count, e)
+			}
+		})
+	}
+}

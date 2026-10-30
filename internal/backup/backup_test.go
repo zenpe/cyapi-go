@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"cyapi-go/internal/config"
@@ -101,5 +102,45 @@ func TestSQLiteBackupRestoresCommittedData(t *testing.T) {
 	}
 	if _, e = os.Stat(target); !os.IsNotExist(e) {
 		t.Fatal("failed output visible", e)
+	}
+}
+
+func TestCredentialKeyIncludedWithoutConfigAndMissingKeyFails(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	db, e := persistence.Open(ctx, config.Database{Driver: "sqlite", DSN: filepath.Join(root, "live.db"), BusyTimeout: time.Second})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer db.Close()
+	if e = db.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	key := bytes.Repeat([]byte{23}, 32)
+	keyPath := filepath.Join(root, "netease.key")
+	if e = os.WriteFile(keyPath, key, 0600); e != nil {
+		t.Fatal(e)
+	}
+	output := filepath.Join(root, "backup")
+	m, e := Run(ctx, db, Options{Output: output, CredentialKeyPath: keyPath})
+	if e != nil {
+		t.Fatal(e)
+	}
+	restored, e := os.ReadFile(filepath.Join(output, "netease.key"))
+	if e != nil || !bytes.Equal(restored, key) || m.RecoveryFiles["netease.key"] == "" || m.ConfigIncluded {
+		t.Fatal("key not recoverable", e)
+	}
+	if e = db.ORM.Exec("INSERT INTO account_bindings(user_id,provider,payload_json,updated_at,revision,status,credentials) VALUES(1,'netease','{}','2026-10-30T00:00:00Z',1,'bound','ciphertext')").Error; e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Remove(keyPath); e != nil {
+		t.Fatal(e)
+	}
+	missing := filepath.Join(root, "missing")
+	if _, e = Run(ctx, db, Options{Output: missing, CredentialKeyPath: keyPath}); e == nil {
+		t.Fatal("backup published without required key")
+	}
+	if _, e = os.Stat(missing); !os.IsNotExist(e) {
+		t.Fatal("failed backup visible")
 	}
 }

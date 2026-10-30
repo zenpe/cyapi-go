@@ -22,7 +22,7 @@ func NewHandler(s *Service, guard func(http.HandlerFunc) http.HandlerFunc, log *
 }
 func (h *Handler) Register(mux *http.ServeMux) {
 	for pattern, kind := range map[string]string{
-		"POST /playback/save": "save", "GET /playback/last": "last", "DELETE /playback/clear": "clear", "POST /stats/listening-time": "listening-time", "POST /stats/play-count": "play-count", "GET /stats": "stats", "GET /stats/records": "records", "GET /stats/song-memory": "song-memory", "POST /auth/update-username": "username", "POST /auth/update-location": "location", "GET /accounts/bindings": "bindings", "POST /accounts/netease/unbind": "unbind-netease", "POST /accounts/kugou/unbind": "unbind-kugou"} {
+		"POST /playback/save": "save", "GET /playback/last": "last", "DELETE /playback/clear": "clear", "POST /stats/listening-time": "listening-time", "POST /stats/play-count": "play-count", "GET /stats": "stats", "GET /stats/records": "records", "GET /stats/song-memory": "song-memory", "POST /auth/update-username": "username", "POST /auth/update-location": "location", "POST /accounts/kugou/unbind": "unbind-kugou"} {
 		mux.HandleFunc(pattern, h.guard(func(w http.ResponseWriter, r *http.Request) {
 			b := map[string]any{}
 			var e error

@@ -60,6 +60,9 @@ func (s *Store) BeginRemote(ctx context.Context, user int64, c library.Command) 
 			replay = &library.Result{}
 			return json.Unmarshal([]byte(*old.ResponseJSON), replay)
 		}
+		if c.Kind == "import" {
+			return nil
+		}
 		if c.Kind == "follow" {
 			var count int64
 			if e := tx.Model(&playlist{}).Where("user_id = ? AND type = 'synced' AND source = ? AND source_playlist_id = ?", user, c.Source, c.SourcePlaylistID).Count(&count).Error; e != nil {
@@ -119,6 +122,47 @@ func (s *Store) FinishRemote(ctx context.Context, user int64, t library.RemoteTi
 			}
 			if failure != nil {
 				return failure
+			}
+
+			if remote.AccountRevision != nil {
+				result := work.Table("account_bindings").Where("user_id = ? AND provider = ? AND revision = ? AND status = ?", user, "netease", *remote.AccountRevision, "bound").UpdateColumn("revision", gorm.Expr("revision"))
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return library.Fail(409, "BINDING_CHANGED", "网易云绑定已变化，导入已取消")
+				}
+			}
+			if c.Kind == "import" {
+				name := c.Name
+				if name == "" {
+					name = remote.Name
+				}
+				p = playlist{UserID: user, Name: name, Type: "local", SyncStatus: "idle", CreatedAt: at, UpdatedAt: at}
+				if err := work.Create(&p).Error; err != nil {
+					return err
+				}
+				seen := map[int64]bool{}
+				items := make([]item, 0, len(remote.Tracks))
+				for _, track := range remote.Tracks {
+					id, err := upsert(work, track.Track, at)
+					if err != nil {
+						return err
+					}
+					if seen[id] {
+						continue
+					}
+					seen[id] = true
+					items = append(items, item{PlaylistID: p.ID, TrackID: id, Rank: int64(len(items)) * 1024, AddedAt: at})
+				}
+				if len(items) > 0 {
+					if err := work.CreateInBatches(items, 100).Error; err != nil {
+						return err
+					}
+				}
+				var err error
+				out, err = resultPlaylist(work, user, p.ID, map[string]any{})
+				return err
 			}
 			if c.Kind == "follow" {
 				name := c.Name

@@ -5,7 +5,9 @@ import (
 	"cyapi-go/internal/auth"
 	"cyapi-go/internal/compat"
 	"cyapi-go/internal/config"
+	"cyapi-go/internal/neteaseaccount"
 	"cyapi-go/internal/persistence"
+	"cyapi-go/internal/persistence/accountstore"
 	"cyapi-go/internal/persistence/authstore"
 	"cyapi-go/internal/persistence/userstatestore"
 	"cyapi-go/internal/server"
@@ -79,7 +81,11 @@ func TestBatchUserDataAndCompatibility(t *testing.T) {
 			}
 			guard := auth.NewHandler(accounts, server.ClientIP, log)
 			routes := userstate.NewHandler(userstate.New(userstatestore.New(db.ORM)), guard.Protect, log)
-			h := server.NewHandler(config.Defaults().Server, db, log, routes.Register, func(mux *http.ServeMux) { compat.Register(mux, guard.Protect) })
+			platformAccounts, err := neteaseaccount.New(accountstore.New(db.ORM), nil, []byte(strings.Repeat("k", 32)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := server.NewHandler(config.Defaults().Server, db, log, routes.Register, neteaseaccount.NewHandler(platformAccounts, guard.Protect).Register, func(mux *http.ServeMux) { compat.Register(mux, guard.Protect) })
 			signer, _ := auth.NewSigner(secret, time.Hour)
 			tokens := map[int]string{}
 			for i := 1; i <= 2; i++ {

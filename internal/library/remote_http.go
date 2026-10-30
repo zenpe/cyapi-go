@@ -10,10 +10,10 @@ func (h *Handler) WithRemoteProtection(guard func(http.HandlerFunc) http.Handler
 	return h
 }
 func (h *Handler) RegisterRemote(mux *http.ServeMux, guard func(http.HandlerFunc) http.HandlerFunc) {
-	for pattern, kind := range map[string]string{"POST /playlists/follow": "follow", "POST /playlists/{playlistId}/sync": "sync", "POST /playlists/{playlistId}/copy": "copy"} {
+	for pattern, kind := range map[string]string{"POST /playlists/follow": "follow", "POST /playlists/import": "import", "POST /playlists/{playlistId}/sync": "sync", "POST /playlists/{playlistId}/copy": "copy"} {
 		mux.HandleFunc(pattern, guard(func(w http.ResponseWriter, r *http.Request) {
 			c := Command{Kind: kind}
-			if kind != "follow" {
+			if kind != "follow" && kind != "import" {
 				id, e := ParseID(r.PathValue("playlistId"))
 				if e != nil {
 					h.reply(w, Result{}, e)

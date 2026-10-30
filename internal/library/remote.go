@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,10 +15,11 @@ type RemoteTrack struct {
 	SourcePosition, OccurrenceIndex int
 }
 type RemoteSnapshot struct {
-	Name          string
-	ExpectedCount int
-	Complete      bool
-	Tracks        []RemoteTrack
+	AccountRevision *int64
+	Name            string
+	ExpectedCount   int
+	Complete        bool
+	Tracks          []RemoteTrack
 }
 type RemoteProvider interface {
 	FetchSnapshot(context.Context, string, string) (RemoteSnapshot, error)
@@ -57,13 +59,13 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 		}
 		return s.store.Write(ctx, user, c)
 	}
-	if c.Kind != "follow" && c.Kind != "sync" {
+	if c.Kind != "follow" && c.Kind != "sync" && c.Kind != "import" {
 		return Result{}, Fail(400, "INVALID_REQUEST", "请求无效")
 	}
 	if c.Kind == "sync" && !validID(c.PlaylistID) {
 		return Result{}, Fail(400, "INVALID_PLAYLIST_ID", "歌单 ID 无效")
 	}
-	if c.Kind == "follow" {
+	if c.Kind == "follow" || c.Kind == "import" {
 		c.Source = strings.ToLower(strings.TrimSpace(c.Source))
 		c.SourcePlaylistID = strings.TrimSpace(c.SourcePlaylistID)
 		id, e := ParseID(c.SourcePlaylistID)
@@ -115,8 +117,14 @@ func (s *Service) Remote(ctx context.Context, user int64, c Command) (Result, er
 			t.OccurrenceIndex = occurrences[t.TrackID]
 			occurrences[t.TrackID]++
 		}
-		if ticket.Command.Kind == "follow" && ticket.Command.Name == "" && !validName(snapshot.Name) {
+		if (ticket.Command.Kind == "follow" || ticket.Command.Kind == "import") && ticket.Command.Name == "" && !validName(snapshot.Name) {
 			failure = Fail(422, "SOURCE_SNAPSHOT_INCOMPLETE", "来源歌单名称无效")
+		}
+	}
+	if fetchErr != nil {
+		var bindingFailure *Failure
+		if errors.As(fetchErr, &bindingFailure) {
+			failure = bindingFailure
 		}
 	}
 	// Successful snapshot writes share the request's remaining budget. Only failure

@@ -73,6 +73,8 @@ type Command struct {
 
 func (c Command) Scope() string {
 	switch c.Kind {
+	case "import":
+		return "playlist:import:" + c.Source + ":" + c.SourcePlaylistID
 	case "follow":
 		return "playlist:follow:" + c.Source + ":" + c.SourcePlaylistID
 	case "create":

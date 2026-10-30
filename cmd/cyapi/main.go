@@ -23,7 +23,9 @@ import (
 	"cyapi-go/internal/library"
 	"cyapi-go/internal/mail"
 	"cyapi-go/internal/music"
+	"cyapi-go/internal/neteaseaccount"
 	"cyapi-go/internal/persistence"
+	"cyapi-go/internal/persistence/accountstore"
 	"cyapi-go/internal/persistence/authstore"
 	"cyapi-go/internal/persistence/librarystore"
 	"cyapi-go/internal/persistence/userstatestore"
@@ -237,7 +239,7 @@ func run(args []string, log *slog.Logger) error {
 		}
 		work, cancel := context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
-		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: *includeConfig, ConfigPath: *path, SecretsPath: c.SecretsFile})
+		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: *includeConfig, ConfigPath: *path, SecretsPath: c.SecretsFile, CredentialKeyPath: filepath.Join(c.RuntimeDirectory, "netease.key")})
 		if e != nil {
 			return e
 		}
@@ -271,6 +273,19 @@ func run(args []string, log *slog.Logger) error {
 		return err
 	}
 	defer neteaseClient.Close()
+	var credentialCount int64
+	if err = db.ORM.Table("account_bindings").Where("credentials <> ?", "").Count(&credentialCount).Error; err != nil {
+		return err
+	}
+	accountKey, err := neteaseaccount.LoadKey(filepath.Join(c.RuntimeDirectory, "netease.key"), credentialCount > 0)
+	if err != nil {
+		return err
+	}
+	platformAccounts, err := neteaseaccount.New(accountstore.New(db.ORM), neteaseClient, accountKey)
+	if err != nil {
+		return err
+	}
+
 	qqClient, err := qq.New(platformhttp.Options{Cookie: c.Env(c.Providers.QQCookieEnv), MaxConcurrent: c.Providers.MaxConcurrent, Timeout: c.Providers.RequestTimeout})
 	if err != nil {
 		return err
@@ -293,7 +308,7 @@ func run(args []string, log *slog.Logger) error {
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
 	musicRoutes := music.NewHandler(musicService, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	libraryStore := librarystore.New(db.ORM)
-	libraryRoutes := library.NewHandler(library.NewWithRemote(libraryStore, libraryStore, library.RemoteProviders{"netease": neteaseClient, "qq": qqClient}), authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
+	libraryRoutes := library.NewHandler(library.NewWithRemote(libraryStore, libraryStore, library.RemoteProviders{"netease": accountSnapshot{platformAccounts, neteaseClient}, "qq": qqClient}), authRoutes.Protect, log).WithRemoteProtection(func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	userRoutes := userstate.NewHandler(userstate.New(userstatestore.New(db.ORM)), authRoutes.Protect, log)
 	compatibility := func(mux *http.ServeMux) { compat.Register(mux, authRoutes.Protect) }
 	extraRoutes := func(mux *http.ServeMux) {
@@ -309,7 +324,7 @@ func run(args []string, log *slog.Logger) error {
 	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
 	waitMaintenance := startMaintenance(maintenanceCtx, c, *path, db, sourceFiles, log)
 	defer func() { stopMaintenance(); waitMaintenance() }()
-	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes)
+	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes, neteaseaccount.NewHandler(platformAccounts, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }).Register)
 }
 
 func serveListener(ctx context.Context, c config.Server, db server.Readiness, log *slog.Logger, listener net.Listener, register ...func(*http.ServeMux)) error {
@@ -351,4 +366,13 @@ func identityHandler(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+type accountSnapshot struct {
+	s *neteaseaccount.Service
+	c *netease.Client
+}
+
+func (a accountSnapshot) FetchSnapshot(ctx context.Context, source, id string) (library.RemoteSnapshot, error) {
+	return a.s.PersonalSnapshot(ctx, a.c, source, id)
 }

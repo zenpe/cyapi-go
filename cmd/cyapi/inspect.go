@@ -4,6 +4,7 @@ import (
 	"context"
 	"cyapi-go/internal/auth"
 	"cyapi-go/internal/config"
+	"cyapi-go/internal/neteaseaccount"
 	"cyapi-go/internal/persistence"
 	"database/sql"
 	"encoding/json"
@@ -114,6 +115,7 @@ func inspectCommand(args []string, doctor bool) error {
 				}
 			}
 		}
+		var accountCredentialCount int64
 		if c.Database.Driver == "sqlite" {
 			info, e := os.Stat(c.Database.DSN)
 			if e != nil || !info.Mode().IsRegular() {
@@ -125,6 +127,9 @@ func inspectCommand(args []string, doctor bool) error {
 				} else {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					e = (&persistence.Database{SQL: raw, Driver: "sqlite"}).CheckSchema(ctx)
+					if e == nil {
+						e = raw.QueryRowContext(ctx, "SELECT count(*) FROM account_bindings WHERE credentials <> ''").Scan(&accountCredentialCount)
+					}
 					cancel()
 					raw.Close()
 					if e != nil {
@@ -139,6 +144,9 @@ func inspectCommand(args []string, doctor bool) error {
 			db, e := persistence.Open(ctx, c.Database)
 			if e == nil {
 				e = db.CheckSchema(ctx)
+				if e == nil {
+					e = db.ORM.Table("account_bindings").Where("credentials <> ?", "").Count(&accountCredentialCount).Error
+				}
 				db.Close()
 			}
 			cancel()
@@ -148,6 +156,20 @@ func inspectCommand(args []string, doctor bool) error {
 				report("PASS", "PostgreSQL schema matches")
 			}
 		}
+
+		keyPath := filepath.Join(c.RuntimeDirectory, "netease.key")
+		if _, err := os.Lstat(keyPath); err == nil {
+			if _, err = neteaseaccount.LoadKey(keyPath, true); err != nil {
+				report("FAIL", err.Error())
+			} else {
+				report("PASS", "Netease credential encryption key is present (value hidden)")
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			report("FAIL", "Cannot inspect Netease credential key")
+		} else if accountCredentialCount > 0 {
+			report("FAIL", "Netease credential key missing; restore netease.key into runtime_directory")
+		}
+
 		if c.Env(c.Mail.APIKeyEnv) == "" || c.Mail.SenderEmail == "" {
 			report("WARN", "Mail is not configured; public registration/password recovery unavailable")
 		} else {

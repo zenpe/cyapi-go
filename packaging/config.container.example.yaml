@@ -1,3 +1,4 @@
+runtime_directory: "/data"
 server:
   listen: "0.0.0.0:8080"
   trusted_proxies: []

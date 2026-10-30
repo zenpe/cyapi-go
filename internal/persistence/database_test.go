@@ -116,7 +116,8 @@ func TestConcurrentMigrations(t *testing.T) {
 	}
 	var count int
 	a.SQL.QueryRow("SELECT count(*) FROM cyapi_schema_migrations").Scan(&count)
-	if count != 2 {
+	expected, _ := migrations("sqlite")
+	if count != len(expected) {
 		t.Fatal(count)
 	}
 }
@@ -290,5 +291,42 @@ func TestMigrationLockWaitHonorsCancellation(t *testing.T) {
 	}
 	if err = b.CheckSchema(context.Background()); err != nil {
 		t.Fatal("failed lock acquisition changed schema", err)
+	}
+}
+
+func TestNeteaseMigrationPreservesLegacyUserAndBinding(t *testing.T) {
+	d := fresh(t)
+	ctx := context.Background()
+	ms, e := migrations("sqlite")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = d.SQL.Exec("CREATE TABLE cyapi_schema_migrations(name TEXT PRIMARY KEY,checksum TEXT NOT NULL,applied_at TEXT NOT NULL)"); e != nil {
+		t.Fatal(e)
+	}
+	for _, m := range ms {
+		if m.Name >= "0003" {
+			break
+		}
+		if _, e = d.SQL.Exec(m.Body); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = d.SQL.Exec("INSERT INTO cyapi_schema_migrations VALUES(?,?,?)", m.Name, m.Checksum, "2026-10-30"); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if _, e = d.SQL.Exec("INSERT INTO users(id,email,username,password_hash) VALUES(1,'12345@qq.com','legacy','existing-hash'); INSERT INTO account_bindings(user_id,provider,payload_json,updated_at) VALUES(1,'netease','{}','2026-10-30')"); e != nil {
+		t.Fatal(e)
+	}
+	if e = d.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	var username, password, status, credential string
+	var revision int64
+	if e = d.SQL.QueryRow("SELECT username,password_hash FROM users WHERE id=1").Scan(&username, &password); e != nil || username != "legacy" || password != "existing-hash" {
+		t.Fatal("legacy account changed", e)
+	}
+	if e = d.SQL.QueryRow("SELECT status,revision,credentials FROM account_bindings WHERE user_id=1").Scan(&status, &revision, &credential); e != nil || status != "unbound" || revision != 0 || credential != "" {
+		t.Fatal("legacy unverified account trusted", e)
 	}
 }

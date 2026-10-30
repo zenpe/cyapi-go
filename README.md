@@ -70,3 +70,7 @@ flowchart TD
 ## 自动发行
 
 推送 `v1.0.0` 等版本标签后，GitHub Actions 自动测试并发布 Linux/Windows 程序、NAS 安装包与 SHA256SUMS；也可手动运行并保留为草稿。详见 [GitHub Releases](docs/11-github-releases.md)。
+
+## 网易云账号与推荐
+
+已接入按 Cyapi 用户保存的网易云绑定、官方网页登录/备用扫码、个人歌单导入和三个个性化推荐模块。该平台绑定不同于 Cyapi 自身的扫码登录；实现范围与实际验收状态见 [网易云账号绑定与推荐](docs/12-netease-account-and-recommendations.md)。
