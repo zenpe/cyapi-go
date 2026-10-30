@@ -72,7 +72,7 @@ def main():
     roots = []
     try:
         # Check that an occupied port is caught before accounts/directories are created.
-        blocked = Path(tempfile.mkdtemp(prefix="cyapi-port-")); roots.append(blocked)
+        blocked = Path(tempfile.mkdtemp(dir="/var/lib", prefix="cyapi-port-")); roots.append(blocked)
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0)); sock.listen()
             result = run(args.binary, "install", "--dir", blocked, "--listen",
@@ -81,7 +81,7 @@ def main():
             assert not (blocked / "data").exists()
 
         # Startup failures report the real cause, stop the service, and can resume.
-        failed = Path(tempfile.mkdtemp(prefix="cyapi-failure-")); roots.append(failed)
+        failed = Path(tempfile.mkdtemp(dir="/var/lib", prefix="cyapi-failure-")); roots.append(failed)
         failed.chmod(0o755)
         failed_port = free_port(); config(failed, failed_port)
         with (failed / "config.yaml").open("a") as handle:
@@ -96,7 +96,7 @@ def main():
         assert (failed / "secrets.env").read_bytes() == key
         verify(failed, failed_port)
 
-        root = Path(tempfile.mkdtemp(prefix="cyapi-managed-")); roots.append(root)
+        root = Path(tempfile.mkdtemp(dir="/var/lib", prefix="cyapi-managed-")); roots.append(root)
         root.chmod(0o755)
         # Owner-denying inherited POSIX ACL reproduces the NAS permission trap.
         run("setfacl", "-m", "d:u::---,d:g::---,d:o::---", root)
@@ -132,7 +132,7 @@ def main():
         verify(root, new_port)
 
         # Actual v0.0.2 installation, then new-binary adoption with account/key/port preserved.
-        legacy = Path(tempfile.mkdtemp(prefix="cyapi-legacy-")); roots.append(legacy)
+        legacy = Path(tempfile.mkdtemp(dir="/var/lib", prefix="cyapi-legacy-")); roots.append(legacy)
         legacy.chmod(0o755)
         legacy_port = free_port(); config(legacy, legacy_port)
         run(args.legacy, "install", "--dir", legacy, "--non-interactive",
