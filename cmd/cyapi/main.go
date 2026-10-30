@@ -125,11 +125,26 @@ func run(args []string, log *slog.Logger) error {
 				return e
 			}
 			childArgs := append(append([]string{}, originalCLI...), "--config", c.FilePath)
+			// Resolve caller-relative paths before switching away from a private SSH/home cwd.
+			if backupOutput != nil && *backupOutput != "" {
+				absolute, e := filepath.Abs(*backupOutput)
+				if e != nil {
+					return e
+				}
+				childArgs = append(childArgs, "--output", absolute)
+			}
+			if *logPath != "" {
+				absolute, e := filepath.Abs(*logPath)
+				if e != nil {
+					return e
+				}
+				childArgs = append(childArgs, "--log-file", absolute)
+			}
 			cmd, e := serviceCommand(context.Background(), i.User, self, childArgs...)
 			if e != nil {
 				return e
 			}
-			cmd.Dir, _ = os.Getwd()
+			cmd.Dir = i.Root
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
