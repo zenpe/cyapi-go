@@ -9,6 +9,10 @@ import (
 )
 
 var commandHelp = map[string]string{
+	"config": `config edit [--config config.yaml]
+Edit and validate configuration, preserving managed service permissions.
+Uses EDITOR (default vi). Invalid input leaves the original configuration intact.
+Restart the service after saving. Data paths require an explicit migration.`,
 	"install": `install [--dir DIRECTORY] [--listen HOST:PORT]
         [--service auto|systemd|none] [--user USER] [--non-interactive]
         [--username NAME --email ADDRESS]
@@ -36,7 +40,8 @@ Stages a matching Linux binary, stops the service, makes a recovery backup,
 migrates using the candidate, switches binaries and checks readiness.
 After migration failure or failed readiness, the service stays stopped for recovery.
 Does not download updates. Obtain the binary and checksum from a trusted release.
-Example: ./cyapi upgrade --file ./cyapi-new --sha256 <release-checksum>`,
+For v0.0.2 adoption, run the NEW binary: sudo ./cyapi-new upgrade --file ./cyapi-new
+Example: sudo ./cyapi upgrade --file ./cyapi-new --sha256 <release-checksum>`,
 	"backup": `backup --output NEW_DIRECTORY [--config config.yaml] [--include-config]
 Create a consistent checksummed database and source snapshot backup.
 --include-config adds restricted config/secrets recovery files; keep them private.
@@ -71,7 +76,7 @@ func printHelp(command string) error {
 Usage: cyapi <command> [options]
 
 Install/run:  install, serve, status
-Maintenance:  doctor, backup, upgrade
+Maintenance:  doctor, backup, upgrade, config edit
 Database:     migrate, schema-status
 Sources:      sync-sources, sources status, sources rollback
 Information:  help, version
@@ -115,6 +120,8 @@ func handleCLI(args []string, log *slog.Logger) (bool, error) {
 		}
 	}
 	switch args[0] {
+	case "config":
+		return true, configEditCommand(args[1:])
 	case "install":
 		return true, installCommand(args[1:], log)
 	case "status":

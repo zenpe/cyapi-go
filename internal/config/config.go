@@ -24,6 +24,7 @@ type Maintenance struct {
 }
 
 type Config struct {
+	FilePath         string      `yaml:"-"`
 	SecretsFile      string      `yaml:"secrets_file"`
 	RuntimeDirectory string      `yaml:"runtime_directory"`
 	Maintenance      Maintenance `yaml:"maintenance"`
@@ -110,6 +111,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	c.FilePath = absolute
 	f, err := os.Open(absolute)
 	if err != nil {
 		return c, fmt.Errorf("open config: %w", err)

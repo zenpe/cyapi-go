@@ -40,6 +40,7 @@ var version = "dev"
 var commit = "unknown"
 
 func main() {
+	platformDefaults()
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	if err := run(os.Args[1:], log); err != nil {
 		log.Error("command failed", "error", err.Error())
@@ -47,6 +48,14 @@ func main() {
 	}
 }
 func run(args []string, log *slog.Logger) error {
+	originalCLI := append([]string{}, args...)
+	if len(args) > 0 && args[0] == "_install-local" {
+		return installLocal(args[1:], log, true)
+	}
+	if len(args) > 0 && args[0] == "_check-access" {
+		return accessCommand(args[1:])
+	}
+
 	if handled, err := handleCLI(args, log); handled {
 		return err
 	}
@@ -100,6 +109,33 @@ func run(args []string, log *slog.Logger) error {
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
+	c, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	// Root management commands must not leave root-owned business files behind.
+	if isRoot() {
+		if _, e := os.Lstat(filepath.Join(filepath.Dir(c.FilePath), ".cyapi-install.json")); e == nil {
+			i, e := loadManagedInstallation(c)
+			if e != nil {
+				return e
+			}
+			self, e := os.Executable()
+			if e != nil {
+				return e
+			}
+			childArgs := append(append([]string{}, originalCLI...), "--config", c.FilePath)
+			cmd, e := serviceCommand(context.Background(), i.User, self, childArgs...)
+			if e != nil {
+				return e
+			}
+			cmd.Dir, _ = os.Getwd()
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+	}
 	if *logPath != "" {
 		if command != "serve" {
 			return errors.New("--log-file is only valid for serve")
@@ -110,10 +146,6 @@ func run(args []string, log *slog.Logger) error {
 		}
 		defer writer.Close()
 		log = slog.New(slog.NewJSONHandler(writer, nil))
-	}
-	c, err := config.Load(*path)
-	if err != nil {
-		return err
 	}
 	if command == "serve" {
 		if _, err = c.Secret(); err != nil {
@@ -267,7 +299,7 @@ func run(args []string, log *slog.Logger) error {
 
 func serveListener(ctx context.Context, c config.Server, db server.Readiness, log *slog.Logger, listener net.Listener, register ...func(*http.ServeMux)) error {
 	var err error
-	srv := &http.Server{Handler: server.NewHandler(c, db, log, register...), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+	srv := &http.Server{Handler: identityHandler(server.NewHandler(c, db, log, register...)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(listener) }()
 	log.Info("server started", "listen", listener.Addr().String(), "version", version)
@@ -294,4 +326,14 @@ func serveListener(ctx context.Context, c config.Server, db server.Readiness, lo
 
 func sourceManager(c config.Config) (*sources.Manager, error) {
 	return sources.New(sources.Options{Directory: c.Sources.Directory, Repo: c.Sources.Repo, Token: c.Env(c.Sources.GitHubTokenEnv), AllowEmpty: c.Sources.AllowEmpty, MaxZipBytes: c.Sources.MaxZipBytes, MaxFileBytes: c.Sources.MaxFileBytes, MaxTotalBytes: c.Sources.MaxTotalBytes, MaxFiles: c.Sources.MaxFiles, ReserveBytes: c.Sources.ReserveBytes})
+}
+
+func identityHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health/ready" {
+			w.Header().Set("X-Cyapi-PID", fmt.Sprint(os.Getpid()))
+			w.Header().Set("X-Cyapi-Version", version)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

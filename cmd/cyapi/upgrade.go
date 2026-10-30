@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -35,7 +34,7 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	if e != nil {
 		return e
 	}
-	i, e := loadInstallation(c)
+	i, e := loadUpgradeInstallation(c)
 	if e != nil || i.Unit == "" {
 		return errors.New("no managed systemd installation; use the manual upgrade procedure")
 	}
@@ -43,7 +42,7 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	if e != nil || absolute != i.Config {
 		return errors.New("upgrade must use the installed configuration")
 	}
-	unlock, e := acquireLock(filepath.Join(c.RuntimeDirectory, "management.lock"))
+	unlock, e := acquireLock(filepath.Join(i.Root, ".cyapi-management.lock"))
 	if e != nil {
 		return e
 	}
@@ -69,15 +68,53 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	}
 	fmt.Println("Candidate SHA256:", digest)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	versionBytes, e := exec.CommandContext(ctx, staged, "version").Output()
+	versionCommand, e := serviceCommand(ctx, i.User, staged, "version")
+	if e != nil {
+		cancel()
+		return e
+	}
+	versionBytes, e := versionCommand.Output()
 	cancel()
 	if e != nil || !strings.HasPrefix(string(versionBytes), "cyapi ") || !strings.HasSuffix(strings.TrimSpace(string(versionBytes)), "linux/"+targetArch()) {
 		return errors.New("candidate version/architecture check failed; service was not stopped")
 	}
-	return executeUpgrade(i, c, staged, digest, log, upgradeOps{service: systemctl, step: runUpgradeStep, wait: waitReady})
+	candidateVersion := strings.Fields(string(versionBytes))[1]
+	i.Version = candidateVersion
+	return executeUpgrade(i, c, staged, digest, log, upgradeOps{
+		service: systemctl,
+		prepare: func() error {
+			if e := prepareManagedPaths(i, c); e != nil {
+				return e
+			}
+			if e := writeManagedInstallation(i); e != nil {
+				return e
+			}
+			if e := registerService(i); e != nil {
+				return e
+			}
+			candidate := i
+			candidate.Binary = staged
+			return checkAsService(candidate, true)
+		},
+		step: func(binary string, timeout time.Duration, args ...string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			cmd, e := serviceCommand(ctx, i.User, binary, args...)
+			if e != nil {
+				return e
+			}
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		},
+		wait: func(listen string, timeout time.Duration) error {
+			return waitManagedReady(i, listen, candidateVersion, timeout)
+		},
+	})
 }
 
 type upgradeOps struct {
+	prepare func() error
 	service func(...string) error
 	step    func(string, time.Duration, ...string) error
 	wait    func(string, time.Duration) error
@@ -88,11 +125,21 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 	if e = ops.service("stop", i.Unit); e != nil {
 		return e
 	}
+	if ops.prepare != nil {
+		if e = ops.prepare(); e != nil {
+			return fmt.Errorf("service stopped; permission preparation failed: %w", e)
+		}
+	}
 	release, e := acquireLock(filepath.Join(c.RuntimeDirectory, "serve.lock"))
 	if e != nil {
 		return errors.New("service stopped but another API owns the instance; upgrade aborted")
 	}
 	release()
+	if i.User != "" {
+		if e = securePath(filepath.Join(c.RuntimeDirectory, "serve.lock"), i.User, 0600); e != nil {
+			return e
+		}
+	}
 	output := filepath.Join(c.Maintenance.BackupDirectory, "upgrade-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
 	if e = ops.step(i.Binary, 30*time.Minute, "backup", "--config", i.Config, "--output", output, "--include-config"); e != nil {
 		restartErr := ops.service("start", i.Unit)
@@ -102,7 +149,7 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 		return errors.New("upgrade backup failed; no migration or binary replacement was attempted")
 	}
 	fmt.Println("Recovery backup:", output)
-	if e = writeJSONFile(filepath.Join(c.RuntimeDirectory, "upgrade.json"), map[string]any{"stage": "backed_up", "backup": output, "candidate_sha256": digest, "time": time.Now().UTC()}); e != nil {
+	if e = writeJSONFile(filepath.Join(i.Root, ".cyapi-upgrade.json"), map[string]any{"stage": "backed_up", "backup": output, "candidate_sha256": digest, "time": time.Now().UTC()}); e != nil {
 		return e
 	}
 	// Once migration starts, never automatically restart an older program against the resulting schema.
@@ -119,7 +166,7 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 	if e = os.Rename(staged, i.Binary); e != nil {
 		return fmt.Errorf("binary replacement failed; service left stopped; recovery backup: %s", output)
 	}
-	if e = writeJSONFile(filepath.Join(c.RuntimeDirectory, "upgrade.json"), map[string]any{"stage": "switched", "backup": output, "candidate_sha256": digest, "previous": previous, "time": time.Now().UTC()}); e != nil {
+	if e = writeJSONFile(filepath.Join(i.Root, ".cyapi-upgrade.json"), map[string]any{"stage": "switched", "backup": output, "candidate_sha256": digest, "previous": previous, "time": time.Now().UTC()}); e != nil {
 		return e
 	}
 	if e = ops.service("start", i.Unit); e == nil {
@@ -131,19 +178,10 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 		}
 		return fmt.Errorf("new service failed readiness and was stopped; do not restart the old binary against a migrated schema; restore recovery backup %s", output)
 	}
-	if e = writeJSONFile(filepath.Join(c.RuntimeDirectory, "upgrade.json"), map[string]any{"stage": "ready", "backup": output, "candidate_sha256": digest, "previous": previous, "time": time.Now().UTC()}); e != nil {
+	if e = writeJSONFile(filepath.Join(i.Root, ".cyapi-upgrade.json"), map[string]any{"stage": "ready", "backup": output, "candidate_sha256": digest, "previous": previous, "time": time.Now().UTC()}); e != nil {
 		log.Warn("upgrade succeeded but cannot persist final upgrade status")
 	}
 	fmt.Println("Upgrade complete. API ready. Previous binary:", previous)
 	log.Info("upgrade completed", "backup", output, "sha256", digest)
 	return nil
-}
-func runUpgradeStep(binary string, timeout time.Duration, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	command := exec.CommandContext(ctx, binary, args...)
-	// Child diagnostics contain no credential values; keep operational errors visible.
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	return command.Run()
 }

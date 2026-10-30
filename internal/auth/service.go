@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/mail"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -22,7 +23,7 @@ const timestamp = "2006-01-02T15:04:05.000000000Z"
 const CodeLifetime = 10 * time.Minute
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]{4,20}$`)
-var emailPattern = regexp.MustCompile(`^[0-9]{5,11}@qq\.com$`)
+var qqNumberEmailPattern = regexp.MustCompile(`^[0-9]{5,11}@qq\.com$`)
 var codePattern = regexp.MustCompile(`^[0-9]{6}$`)
 
 type Options struct {
@@ -134,7 +135,7 @@ func (s *Service) SendCode(ctx context.Context, email, username, purpose, ip str
 	}
 	email = normalizeEmail(email)
 	username = strings.TrimSpace(username)
-	if !emailPattern.MatchString(email) || (purpose != "register" && purpose != "reset_password") {
+	if !ValidEmail(email) || (purpose != "register" && purpose != "reset_password") {
 		return ErrInvalid
 	}
 	if purpose == "register" && !usernamePattern.MatchString(username) {
@@ -182,7 +183,7 @@ func (s *Service) SendCode(ctx context.Context, email, username, purpose, ip str
 func (s *Service) Register(ctx context.Context, email, username, password, code, ip string) (*User, error) {
 	email = normalizeEmail(email)
 	username = strings.TrimSpace(username)
-	if !emailPattern.MatchString(email) || !usernamePattern.MatchString(username) || !validPassword(password) || !codePattern.MatchString(code) {
+	if !ValidEmail(email) || !usernamePattern.MatchString(username) || !validPassword(password) || !codePattern.MatchString(code) {
 		return nil, ErrInvalid
 	}
 	if _, err := s.rate(ctx, "verify-register", email, ip, false); err != nil {
@@ -193,7 +194,10 @@ func (s *Service) Register(ctx context.Context, email, username, password, code,
 		return nil, err
 	}
 	now := s.now().UTC().Format(timestamp)
-	avatar := "https://q1.qlogo.cn/g?b=qq&nk=" + strings.TrimSuffix(email, "@qq.com") + "&s=100"
+	avatar := ""
+	if qqNumberEmailPattern.MatchString(email) {
+		avatar = "https://q1.qlogo.cn/g?b=qq&nk=" + strings.TrimSuffix(email, "@qq.com") + "&s=100"
+	}
 	user := User{Email: email, Username: username, PasswordHash: string(hash), CreatedAt: now, IsVerified: true, AvatarURL: &avatar}
 	return s.store.Register(ctx, user, s.digest(email, "register", code), now)
 }
@@ -246,7 +250,7 @@ func (s *Service) Login(ctx context.Context, account, password, ip string) (user
 }
 func (s *Service) ResetPassword(ctx context.Context, email, password, code, ip string) error {
 	email = normalizeEmail(email)
-	if !emailPattern.MatchString(email) || !validPassword(password) || !codePattern.MatchString(code) {
+	if !ValidEmail(email) || !validPassword(password) || !codePattern.MatchString(code) {
 		return ErrInvalid
 	}
 	if _, err := s.rate(ctx, "verify-reset", email, ip, false); err != nil {
@@ -275,8 +279,27 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*User, error)
 
 // ValidateNewAccount shares the public registration policy with local installation bootstrap.
 func ValidateNewAccount(email, username, password string) error {
-	if !emailPattern.MatchString(email) || !usernamePattern.MatchString(username) || !validPassword(password) {
-		return ErrInvalid
+	if !ValidEmail(email) {
+		return fmt.Errorf("email must be a valid address: %w", ErrInvalid)
+	}
+	if !ValidUsername(username) {
+		return fmt.Errorf("username must be 4-20 ASCII letters/digits/_: %w", ErrInvalid)
+	}
+	if !ValidPassword(password) {
+		return fmt.Errorf("password must contain 8+ characters and at most 72 UTF-8 bytes: %w", ErrInvalid)
 	}
 	return nil
 }
+func ValidEmail(email string) bool {
+	if len(email) > 254 || email != strings.TrimSpace(email) || strings.ContainsAny(email, "\r\n") {
+		return false
+	}
+	a, e := mail.ParseAddress(email)
+	if e != nil || a.Address != email || a.Name != "" {
+		return false
+	}
+	local, domain, ok := strings.Cut(email, "@")
+	return ok && len(local) <= 64 && strings.Contains(domain, ".") && !strings.HasPrefix(domain, ".") && !strings.HasSuffix(domain, ".")
+}
+func ValidUsername(name string) bool     { return usernamePattern.MatchString(name) }
+func ValidPassword(password string) bool { return validPassword(password) }

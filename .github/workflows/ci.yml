@@ -46,3 +46,28 @@ jobs:
           mkdir -p dist
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o dist/cyapi-linux-amd64 ./cmd/cyapi
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/cyapi-linux-arm64 ./cmd/cyapi
+
+  nas-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build current and v0.0.2 executables
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=ci-current" -o dist/cyapi-current ./cmd/cyapi
+          git fetch origin refs/tags/v0.0.2
+          git worktree add --detach /tmp/cyapi-legacy-source be9900dab018e6ec7d618e2d09d1e71d6cebe16b
+          cd /tmp/cyapi-legacy-source
+          CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=v0.0.2" -o "$GITHUB_WORKSPACE/dist/cyapi-legacy" ./cmd/cyapi
+      - name: Exercise real systemd installation and upgrade
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y acl
+          sudo python3 scripts/test_nas_install.py --binary "$PWD/dist/cyapi-current" --legacy "$PWD/dist/cyapi-legacy"

@@ -18,6 +18,7 @@ import (
 )
 
 type taskResult struct {
+	Running     bool      `json:"running,omitempty"`
 	LastAttempt time.Time `json:"last_attempt"`
 	LastSuccess time.Time `json:"last_success"`
 	Error       string    `json:"error,omitempty"`
@@ -44,6 +45,8 @@ func startMaintenance(ctx context.Context, c config.Config, configPath string, d
 				state = maintenanceState{Format: 1}
 			}
 		}
+		state.Sync.Running = false
+		state.Backup.Running = false
 		save := func() {
 			if e := writeJSONFile(statePath, state); e != nil {
 				log.Warn("cannot persist maintenance state")
@@ -51,10 +54,13 @@ func startMaintenance(ctx context.Context, c config.Config, configPath string, d
 		}
 		runSync := func() {
 			state.Sync.LastAttempt = time.Now().UTC()
+			state.Sync.Running = true
+			state.Sync.Error = ""
 			save()
 			work, cancel := context.WithTimeout(ctx, c.Sources.Timeout)
 			defer cancel()
 			report, e := manager.Sync(work, false, false)
+			state.Sync.Running = false
 			if e != nil {
 				state.Sync.Error = "source synchronization failed; inspect network, disk and sources status"
 				log.Warn("scheduled source synchronization failed", "error", e.Error())
@@ -68,11 +74,14 @@ func startMaintenance(ctx context.Context, c config.Config, configPath string, d
 		}
 		runBackup := func() {
 			state.Backup.LastAttempt = time.Now().UTC()
+			state.Backup.Running = true
+			state.Backup.Error = ""
 			save()
 			work, cancel := context.WithTimeout(ctx, 30*time.Minute)
 			defer cancel()
 			output := filepath.Join(c.Maintenance.BackupDirectory, "auto-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
 			_, e := backup.Run(work, db, backup.Options{Output: output, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: true, ConfigPath: configPath, SecretsPath: c.SecretsFile})
+			state.Backup.Running = false
 			if e != nil {
 				state.Backup.Error = "backup failed; inspect database, sources and available disk space"
 				log.Warn("scheduled backup failed", "error", e.Error())

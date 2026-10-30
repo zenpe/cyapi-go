@@ -23,8 +23,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -39,15 +37,15 @@ type installation struct {
 	Version string `json:"version"`
 }
 
-func installCommand(args []string, log *slog.Logger) error {
+func installLocal(args []string, log *slog.Logger, bootstrap bool) error {
 	flags := flag.NewFlagSet("install", flag.ContinueOnError)
 	dir := flags.String("dir", ".", "installation directory")
 	listen := flags.String("listen", "127.0.0.1:8080", "listen address for a new installation")
 	service := flags.String("service", "auto", "auto, systemd or none")
-	serviceUser := flags.String("user", "", "unprivileged Linux service user (default cyapi)")
+	_ = flags.String("user", "", "service user")
 	nonInteractive := flags.Bool("non-interactive", false, "read first-account password from CYAPI_INSTALL_PASSWORD")
 	username := flags.String("username", "", "first-account username")
-	email := flags.String("email", "", "first-account QQ email")
+	email := flags.String("email", "", "first-account email")
 	if e := flags.Parse(args); e != nil {
 		return e
 	}
@@ -169,13 +167,18 @@ func installCommand(args []string, log *slog.Logger) error {
 		if e != nil {
 			return e
 		}
-		if e = createFirstAccount(ctx, db, accountEmail, accountName, password); e != nil {
+		accountCtx, accountCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer accountCancel()
+		if e = createFirstAccount(accountCtx, db, accountEmail, accountName, password); e != nil {
 			return e
 		}
 		fmt.Println("First account created:", accountName, "(no verification email sent)")
 	}
 	if instanceRelease != nil {
 		instanceRelease()
+	}
+	if bootstrap {
+		return nil
 	}
 	binary := filepath.Join(root, "cyapi")
 	if targetOS() == "windows" {
@@ -206,167 +209,98 @@ func installCommand(args []string, log *slog.Logger) error {
 		return e
 	}
 	installed := installation{Format: 1, Root: root, Binary: binary, Config: configPath, Version: version}
-	available := systemdAvailable()
-	useSystemd := *service == "systemd" || (*service == "auto" && available && isRoot())
-	if useSystemd {
-		if !available || !isRoot() {
-			return errors.New("systemd installation requires a running systemd manager and root; use --service none for a NAS task manager")
-		}
-		installed.User = *serviceUser
-		if installed.User == "" {
-			installed.User = "cyapi"
-		}
-		if !regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`).MatchString(installed.User) || installed.User == "root" {
-			return errors.New("service user must be an unprivileged Linux username")
-		}
-		u, e := user.Lookup(installed.User)
-		if e != nil {
-			if *serviceUser != "" {
-				return errors.New("requested service user does not exist")
-			}
-			if e = exec.Command("useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", installed.User).Run(); e != nil {
-				return errors.New("cannot create cyapi service user; create an unprivileged user and pass --user")
-			}
-			u, e = user.Lookup(installed.User)
-			if e != nil {
-				return e
-			}
-		}
-		uid, e := strconv.Atoi(u.Uid)
-		if e != nil || uid == 0 {
-			return errors.New("service user must not have UID 0")
-		}
-		gid, e := strconv.Atoi(u.Gid)
-		if e != nil {
-			return e
-		}
-		// Chown only installation-owned configuration and managed directories, never arbitrary external paths.
-		for _, name := range []string{"data", "backups", "logs"} {
-			e = filepath.WalkDir(filepath.Join(root, name), func(path string, d os.DirEntry, e error) error {
-				if e != nil {
-					return e
-				}
-				if d.Type()&os.ModeSymlink != 0 {
-					return errors.New("installation ownership refuses symbolic links")
-				}
-				return os.Chown(path, uid, gid)
-			})
-			if e != nil {
-				return e
-			}
-		}
-		for _, name := range []string{configPath, c.SecretsFile} {
-			if name == "" {
-				continue
-			}
-			if !inside(root, name) {
-				return errors.New("automatic service installation requires config/secrets inside installation directory")
-			}
-			if info, err := os.Lstat(name); err == nil && !info.Mode().IsRegular() {
-				return errors.New("managed config/secrets must be regular files")
-			}
-			if e = os.Chown(name, uid, gid); e != nil && !errors.Is(e, os.ErrNotExist) {
-				return e
-			}
-		}
-		for _, path := range []string{c.RuntimeDirectory, c.Sources.Directory, c.Maintenance.BackupDirectory} {
-			if !inside(root, path) {
-				return errors.New("automatic service installation requires managed directories inside installation directory")
-			}
-		}
-		if c.Database.Driver == "sqlite" && !inside(root, c.Database.DSN) {
-			return errors.New("automatic service installation requires SQLite inside installation directory")
-		}
-		hash := sha256.Sum256([]byte(root))
-		installed.Unit = "cyapi-" + hex.EncodeToString(hash[:6]) + ".service"
-	}
 	if e = writeJSONFile(filepath.Join(root, "data", "install.json"), installed); e != nil {
 		return e
 	}
-	if useSystemd {
-		// Metadata is written by the installer, then made readable by the API service.
-		u, _ := user.Lookup(installed.User)
-		uid, _ := strconv.Atoi(u.Uid)
-		gid, _ := strconv.Atoi(u.Gid)
-		if e = os.Chown(filepath.Join(root, "data", "install.json"), uid, gid); e != nil {
-			return e
-		}
-		if e = registerService(installed); e != nil {
-			return e
-		}
-		if e = waitReady(c.Server.Listen, 20*time.Second); e != nil {
-			return errors.New("service installed but not ready; run cyapi doctor and inspect logs/server.log")
-		}
-		fmt.Println("Installed and running; boot startup enabled:", installed.Unit)
-	} else {
-		fmt.Println("Files installed. Boot startup is NOT configured.")
-		fmt.Println("Run", binary, "serve --config", configPath, "or configure your NAS task manager to run start.sh with failure restart.")
-		if *service == "auto" {
-			fmt.Println("On systemd Linux, run install as root to register an unprivileged service.")
-		}
-	}
+	fmt.Println("Files installed. Boot startup is NOT configured. Run ./start.sh or configure a NAS startup task.")
 	address := healthOrigin(c.Server.Listen)
 	fmt.Println("Client API address:", address)
 	if c.Env(c.Mail.APIKeyEnv) == "" || c.Mail.SenderEmail == "" {
 		fmt.Println("Mail is not configured: use the local first account; public registration/password recovery are disabled.")
 	}
-	log.Info("installation completed", "directory", root, "service_registered", useSystemd)
+	log.Info("installation completed", "directory", root)
 	return nil
 }
 func installationAccount(name, email string, nonInteractive bool) (string, string, string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	line := func() (string, error) {
 		s, e := reader.ReadString('\n')
-		if e != nil && !(errors.Is(e, io.EOF) && s != "") {
-			return "", e
+		if errors.Is(e, io.EOF) && s != "" {
+			e = nil
 		}
-		return strings.TrimSpace(s), nil
+		return strings.TrimSpace(s), e
 	}
+	email = strings.ToLower(strings.TrimSpace(email))
 	password := os.Getenv("CYAPI_INSTALL_PASSWORD")
-	if !nonInteractive {
-		if name == "" {
-			fmt.Print("First username (4-20 ASCII letters/digits/_): ")
-			var e error
-			name, e = line()
-			if e != nil {
-				return "", "", "", e
-			}
+	if nonInteractive {
+		if e := auth.ValidateNewAccount(email, name, password); e != nil {
+			return "", "", "", e
 		}
-		if email == "" {
-			fmt.Print("QQ email (used for account identity; no mail sent): ")
-			var e error
-			email, e = line()
-			if e != nil {
-				return "", "", "", e
+		return name, email, password, nil
+	}
+	field := func(value, prompt string, valid func(string) bool) (string, error) {
+		if value != "" {
+			if !valid(value) {
+				return "", fmt.Errorf("invalid %s", prompt)
 			}
+			return value, nil
 		}
-		if password == "" {
-			fmt.Print("Password: ")
-			var e error
-			password, e = terminalPassword(func() (string, error) {
-				s, err := reader.ReadString('\n')
-				return strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r"), err
-			})
-			fmt.Println()
+		for {
+			fmt.Print(prompt + ": ")
+			v, e := line()
 			if e != nil {
-				return "", "", "", errors.New("cannot hide password input; use a terminal or CYAPI_INSTALL_PASSWORD with --non-interactive")
+				return "", e
 			}
-			fmt.Print("Confirm password: ")
-			confirmation, e := terminalPassword(func() (string, error) {
-				s, err := reader.ReadString('\n')
-				return strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r"), err
-			})
-			fmt.Println()
-			if e != nil || password != confirmation {
-				return "", "", "", errors.New("password confirmation does not match")
+			if valid(v) {
+				return v, nil
 			}
+			fmt.Println("Invalid value; please try again.")
 		}
 	}
-	if e := auth.ValidateNewAccount(email, name, password); e != nil {
-		return "", "", "", errors.New("first account requires username (4-20 ASCII letters/digits/_), numeric QQ email and password (8+ characters, <=72 UTF-8 bytes); unattended installation uses CYAPI_INSTALL_PASSWORD")
+	var e error
+	name, e = field(name, "First username (4-20 ASCII letters/digits/_)", auth.ValidUsername)
+	if e != nil {
+		return "", "", "", e
+	}
+	email, e = field(email, "Email (account identity; no verification mail sent)", auth.ValidEmail)
+	if e != nil {
+		return "", "", "", e
+	}
+	email = strings.ToLower(email)
+	for password == "" {
+		readPassword := func(prompt string) (string, error) {
+			fmt.Print(prompt)
+			p, e := terminalPassword(func() (string, error) {
+				s, e := reader.ReadString('\n')
+				return strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r"), e
+			})
+			fmt.Println()
+			return p, e
+		}
+		first, e := readPassword("Password: ")
+		if e != nil {
+			return "", "", "", errors.New("cannot read hidden password; use a terminal or --non-interactive with CYAPI_INSTALL_PASSWORD")
+		}
+		if !auth.ValidPassword(first) {
+			fmt.Println("Password needs 8+ characters and at most 72 UTF-8 bytes; try again.")
+			continue
+		}
+		second, e := readPassword("Confirm password: ")
+		if e != nil {
+			return "", "", "", e
+		}
+		if first != second {
+			fmt.Println("Passwords do not match; try again.")
+			continue
+		}
+		password = first
+	}
+	if e = auth.ValidateNewAccount(email, name, password); e != nil {
+		return "", "", "", e
 	}
 	return name, email, password, nil
 }
+
 func createFirstAccount(ctx context.Context, db *persistence.Database, email, name, password string) error {
 	if e := auth.ValidateNewAccount(email, name, password); e != nil {
 		return e
@@ -401,6 +335,11 @@ func copyExecutable(from, to string) error {
 	if e != nil {
 		return e
 	}
+	if e = out.Chmod(0755); e != nil {
+		out.Close()
+		os.Remove(to)
+		return e
+	}
 	_, e = io.Copy(out, f)
 	if e == nil {
 		e = out.Sync()
@@ -419,12 +358,15 @@ func inside(root, path string) bool {
 }
 func loadInstallation(c config.Config) (installation, error) {
 	var i installation
-	b, e := os.ReadFile(filepath.Join(c.RuntimeDirectory, "install.json"))
+	b, e := os.ReadFile(filepath.Join(filepath.Dir(c.FilePath), ".cyapi-install.json"))
+	if errors.Is(e, os.ErrNotExist) {
+		b, e = os.ReadFile(filepath.Join(c.RuntimeDirectory, "install.json"))
+	}
 	if e != nil {
 		return i, e
 	}
 	e = json.Unmarshal(b, &i)
-	if e != nil || i.Format != 1 || !filepath.IsAbs(i.Root) || !inside(i.Root, i.Binary) || !inside(i.Root, i.Config) {
+	if e != nil || (i.Format != 1 && i.Format != 2) || !filepath.IsAbs(i.Root) || !inside(i.Root, i.Binary) || !inside(i.Root, i.Config) {
 		return installation{}, errors.New("invalid installation metadata")
 	}
 	if i.Unit != "" {
@@ -462,7 +404,7 @@ func systemdQuote(s string) string {
 	return "\"" + s + "\""
 }
 func serviceUnit(i installation) string {
-	return "[Unit]\nDescription=Cyapi music API\nWants=network-online.target\nAfter=network-online.target\n[Service]\nUser=" + i.User + "\nExecStart=" + systemdQuote(i.Binary) + " serve --config " + systemdQuote(i.Config) + " --log-file " + systemdQuote(filepath.Join(i.Root, "logs", "server.log")) + "\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=40\nUMask=0077\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=true\nReadWritePaths=" + systemdQuote(i.Root) + "\n[Install]\nWantedBy=multi-user.target\n"
+	return "[Unit]\nDescription=Cyapi music API\nWants=network-online.target\nAfter=network-online.target\nStartLimitIntervalSec=60\nStartLimitBurst=3\n[Service]\nUser=" + i.User + "\nExecStart=" + systemdQuote(i.Binary) + " serve --config " + systemdQuote(i.Config) + " --log-file " + systemdQuote(filepath.Join(i.Root, "logs", "server.log")) + "\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=40\nUMask=0077\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=true\nReadWritePaths=" + systemdQuote(i.Root) + "\n[Install]\nWantedBy=multi-user.target\n"
 }
 func registerService(i installation) error {
 	path := filepath.Join("/etc/systemd/system", i.Unit)
@@ -475,7 +417,7 @@ func registerService(i installation) error {
 	if e := systemctl("daemon-reload"); e != nil {
 		return e
 	}
-	return systemctl("enable", "--now", i.Unit)
+	return nil
 }
 func healthOrigin(listen string) string {
 	host, port, e := net.SplitHostPort(listen)

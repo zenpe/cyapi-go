@@ -126,7 +126,7 @@ func (h *Handler) failure(w http.ResponseWriter, err error) {
 		h.reply(w, 429, map[string]any{"code": 429, "message": "操作过于频繁，请稍后重试", "retryAfterSeconds": rate.RetryAfter})
 		return
 	case errors.Is(err, ErrInvalid):
-		status, message = 400, "参数无效：用户名需为4-20位字母数字下划线，密码需至少8个字符且不超过72字节，注册使用5-11位QQ号邮箱"
+		status, message = 400, "参数无效：用户名需为4-20位字母数字下划线，密码需至少8个字符且不超过72字节，邮箱需为有效地址"
 	case errors.Is(err, ErrUnauthorized):
 		status, message = 401, "账号或密码错误，或登录已过期"
 	case errors.Is(err, ErrConflict):

@@ -61,7 +61,7 @@ go build -trimpath -o dist/cyapi-linux-amd64 ./cmd/cyapi
 
 已接入 GET /auth/registration-status、POST /auth/register/send-code、POST /auth/register、POST /auth/login、POST /auth/reset-password/send-code、POST /auth/reset-password、GET /auth/validate-token。POST 支持 JSON 字符串字段或 URL 编码表单，最大 16 KiB。校验 Token 使用 Authorization: Bearer <token>。
 
-注册沿用 QQ 邮箱（5–11 位数字@qq.com）和 4–20 位字母/数字/下划线用户名；密码至少 8 个 Unicode 字符、不超过 72 个 UTF-8 字节。注册字段为 email/username/password/code；登录为 account/password；重置为 email/newPassword/code。
+注册接受合法邮箱（含 QQ 英文别名）和 4–20 位字母/数字/下划线用户名；密码至少 8 个 Unicode 字符、不超过 72 个 UTF-8 字节。注册字段为 email/username/password/code；登录为 account/password；重置为 email/newPassword/code。
 
 在 config.yaml 的 mail.sender_email 填写已验证的 Brevo 发件地址，环境变量 BREVO_API_KEY 提供 API Key；sender_name/app_name 可配置显示名称。未配置邮件时注册状态 enabled=false，发码返回 503；已有新账号仍可密码登录。自动化测试仅使用内存模拟发件器和本地 HTTP 服务，不发送真实邮件。
 

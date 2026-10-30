@@ -13,7 +13,7 @@ sudo ./cyapi install
 
 默认使用执行时的当前目录；也可 --dir 指定目录。安装将目录转成绝对路径，生成 config.yaml、secrets.env、data/、backups/、logs/ 和 start.sh。配置/密钥仅在缺失时创建，已有数据库却缺少原密钥时拒绝生成替代密钥。已有配置不被命令行 listen 参数覆盖；这些参数只设置新配置，请修改已有配置后重启服务。
 
-首个账号交互输入用户名、QQ 邮箱和两次隐藏密码，不发送邮件；账号与公开注册采用相同字段校验。本地创建仅限 users 表为空，不提供公网免验证码入口。无人值守使用 --non-interactive --username NAME --email ADDRESS，密码仅从 CYAPI_INSTALL_PASSWORD 环境读取，不接受命令行密码参数，也不保存明文密码。未配置邮件时可用首个账号登录，公开注册/找回密码保持关闭。
+首个账号交互输入用户名、合法邮箱（支持 QQ 英文别名及其他邮箱）和两次隐藏密码，不发送邮件；账号与公开注册采用相同字段校验。本地创建仅限 users 表为空，不提供公网免验证码入口。无人值守使用 --non-interactive --username NAME --email ADDRESS，密码仅从 CYAPI_INSTALL_PASSWORD 环境读取，不接受命令行密码参数，也不保存明文密码。未配置邮件时可用首个账号登录，公开注册/找回密码保持关闭。
 
 Linux 有运行中的 systemd 且以 root 安装时，创建 cyapi 普通用户（也可 --user 已有普通用户），注册以安装路径摘要命名的服务，开机启动和失败自动重启。应用不以 root 运行。只调整安装目录内受管文件的权限，不递归改变父目录权限。路径位于 NAS 的 ACL 管理目录时，应确保服务用户可以穿过上级目录；健康检查失败会提示检查日志。
 
@@ -67,13 +67,13 @@ sudo ./cyapi upgrade --file ./cyapi-new --sha256 发布方提供的SHA256
 
 仅管理本程序注册的 Linux systemd 服务，不在线下载可执行文件。先在安装目录暂存候选文件，校验摘要、版本和目标架构，再停止服务；使用旧程序生成 upgrade- 恢复备份，使用候选程序执行显式 migrate，保存带时间戳的 previous 程序，替换并启动健康检查。备份包含受限配置和密钥。建议始终提供发布方摘要。
 
-普通 serve 永远不自动迁移 schema。备份失败不更新程序/数据库，并尝试恢复旧服务；进入迁移阶段后任何失败都保持服务停止，不自动让旧程序连接可能已升级的数据库。升级状态记录在 data/upgrade.json，日志给出备份路径。保留的 previous 程序和 upgrade- 备份不自动清理，验收成功后由管理员归档。
+普通 serve 永远不自动迁移 schema。备份失败不更新程序/数据库，并尝试恢复旧服务；进入迁移阶段后任何失败都保持服务停止，不自动让旧程序连接可能已升级的数据库。升级状态记录在 .cyapi-upgrade.json，日志给出备份路径。保留的 previous 程序和 upgrade- 备份不自动清理，验收成功后由管理员归档。
 
 非 systemd 环境按手动流程：停止 API 和外部任务、用旧程序备份、新程序 migrate、替换并启动、检查 ready。schema 不兼容时不能直接回退旧二进制。
 
 ## 故障恢复
 
-1. 停止 systemd 服务（名称可从 status 或 data/install.json 获取）和维护任务，保留故障现场。
+1. 停止 systemd 服务（名称可从 status 或 .cyapi-install.json 获取）和维护任务，保留故障现场。
 2. 校验备份 manifest 中 DatabaseSHA256 和 RecoveryFiles；音源文件按各代 manifest 的 SHA256 校验。
 3. 将 database.sqlite 恢复到全新的数据目录，sources 恢复到对应新目录；不覆盖运行中的 SQLite/WAL 文件。
 4. 使用恢复包里的配置与原密钥，将 SQLite、音源和 runtime_directory 改为新目录的绝对路径，确认程序版本与备份 schema 匹配。
@@ -81,3 +81,34 @@ sudo ./cyapi upgrade --file ./cyapi-new --sha256 发布方提供的SHA256
 6. PostgreSQL 使用匹配版本的 pg_restore 恢复到新建空库，不覆盖原数据库；pg_dump/pg_restore 需要自行安装。
 
 同盘备份不能防止磁盘损坏，请由 NAS 备份工具另做异机副本。安装、备份、状态和升级流程有本机自动测试；目标 NAS 的 systemd/ACL、隐藏输入终端、真实断电、frp/HTTPS 和 PostgreSQL dump/restore 仍需目标环境验收。
+
+
+## v0.0.3 安装与升级权限
+
+systemd 安装的程序、安装根目录和 `.cyapi-install.json` 由 root 管理；配置、密钥及业务目录归服务用户。初始化数据库、迁移、备份、音源同步以服务用户运行。受管业务目录会统一属主和权限，并清除这些目录的 POSIX 默认 ACL，避免将拒绝所有者访问的继承权限继续传给新文件；不修改 NAS 上级共享目录。其他 NAS 专有 ACL 如阻止访问，安装会在服务身份检查时报告路径。
+
+安装前检查监听端口；账号字段输入错误可重输，输入时间不计入数据库操作超时。启动失败会输出近期服务日志并停止本次服务重试，保留账号/密钥/数据库以供重试。已有正在运行的安装重复执行 install 时保持现状；修改配置使用下面的命令。
+
+```sh
+cd /vol1/appdata/cyapi
+sudo ./cyapi config edit
+```
+
+使用 EDITOR（默认 vi）编辑临时配置，校验成功后保存为服务用户持有的文件。无效配置保留原文件。保存后按输出的 systemctl 命令重启。数据、密钥和音源路径变动需要显式迁移，编辑器不会自动移动数据。不要使用 chmod 777。
+
+`doctor` 会检查实际服务用户能否访问配置、密钥、数据库、日志和业务目录；`status` 验证目标 systemd 实例的 PID 和健康状态，失败时输出近期启动错误。首次维护会显示执行中状态。
+
+### 从 v0.0.2 升级
+
+下载新版本的原始二进制为 `cyapi-new`，使用新程序接管旧安装（不要覆盖正在运行的 cyapi，也不要使用旧版 upgrade）：
+
+```sh
+cd /vol1/appdata/cyapi
+chmod +x cyapi-new
+sudo ./cyapi-new upgrade --file ./cyapi-new --sha256 <新二进制对应的SHA256>
+sudo ./cyapi status
+```
+
+新程序从已有 root 管理的 systemd 服务核实安装路径和服务用户，忽略旧 data/install.json 中的可执行文件路径。停服后统一业务目录权限，以服务身份备份和迁移，再替换程序并验证新版本。账号、原密钥、已有音源和监听端口（例如 18081）保留。
+
+托管安装不继承安装者 shell 的 CYAPI 配置覆盖；把稳定配置放入 config.yaml、凭据放入 secrets.env。systemd 不会继承当前 shell 的 GitHub 或代理变量；网络代理应按服务环境单独配置。

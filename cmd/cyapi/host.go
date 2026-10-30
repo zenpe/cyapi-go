@@ -37,6 +37,10 @@ func writeNew(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
+	if err = f.Chmod(mode); err != nil {
+		f.Close()
+		return err
+	}
 	_, err = f.Write(data)
 	if err == nil {
 		err = f.Sync()

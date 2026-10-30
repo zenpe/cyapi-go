@@ -72,12 +72,23 @@ func inspectCommand(args []string, doctor bool) error {
 	report("PASS", "Configuration is valid")
 	fmt.Println("Program:", version, "commit="+commit)
 	if !doctor {
-		if e = ready(c.Server.Listen); e != nil {
+		e = ready(c.Server.Listen)
+		if i, err := loadManagedInstallation(c); err == nil {
+			e = waitManagedReady(i, c.Server.Listen, "", time.Second)
+		}
+		if e != nil {
 			report("FAIL", e.Error())
 		} else {
 			report("PASS", "API is ready")
 		}
 	} else {
+		if i, err := loadManagedInstallation(c); err == nil {
+			if err = checkAsService(i, false); err != nil {
+				report("FAIL", err.Error())
+			} else {
+				report("PASS", "Service user "+i.User+" can access configuration, secrets, logs and data")
+			}
+		}
 		secret, e := c.Secret()
 		if e != nil {
 			report("FAIL", "Authentication secret is missing")
@@ -97,7 +108,7 @@ func inspectCommand(args []string, doctor bool) error {
 			if e := checkWritableDirectory(path); e != nil {
 				report("FAIL", "Directory is missing or not writable: "+path)
 			} else {
-				report("PASS", "Directory writable: "+path)
+				report("PASS", "Directory writable by current user: "+path)
 				if free, e := availableBytes(path); e == nil && free < uint64(c.Sources.ReserveBytes) {
 					report("WARN", fmt.Sprintf("Low disk space at %s: %d MiB available", path, free>>20))
 				}
@@ -184,7 +195,14 @@ func inspectCommand(args []string, doctor bool) error {
 	}
 	if i, e := loadInstallation(c); e == nil && i.Unit != "" {
 		if e = systemctl("is-active", "--quiet", i.Unit); e != nil {
-			report("WARN", "Systemd service is not active: "+i.Unit)
+			level := "WARN"
+			if !doctor {
+				level = "FAIL"
+			}
+			report(level, "Systemd service is not active: "+i.Unit)
+			if !doctor {
+				fmt.Println(serviceFailure(i.Unit))
+			}
 		} else {
 			report("PASS", "Systemd service active: "+i.Unit)
 		}
@@ -198,7 +216,9 @@ func inspectCommand(args []string, doctor bool) error {
 				name string
 				task taskResult
 			}{{"Source sync", state.Sync}, {"Backup", state.Backup}} {
-				if item.task.Error != "" {
+				if item.task.Running {
+					report("INFO", item.name+": in progress (check service state if interrupted)")
+				} else if item.task.Error != "" {
 					report("WARN", item.name+": "+item.task.Error)
 				} else if item.task.LastSuccess.IsZero() {
 					report("WARN", item.name+": no recorded success")
