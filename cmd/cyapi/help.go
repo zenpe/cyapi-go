@@ -34,14 +34,17 @@ Exit 0: no blocking errors (warnings may exist); exit 1: repair required.`,
 	"status": `status [--config config.yaml]
 Show installed service, health endpoint and last maintenance results.
 Returns failure if the API is not ready. Does not modify data.`,
-	"upgrade": `upgrade --file NEW_BINARY [--sha256 EXPECTED_SHA256] [--config config.yaml]
-Linux systemd installations only; requires service-management privileges.
-Stages a matching Linux binary, stops the service, makes a recovery backup,
-migrates using the candidate, switches binaries and checks readiness.
-After migration failure or failed readiness, the service stays stopped for recovery.
-Does not download updates. Obtain the binary and checksum from a trusted release.
-For v0.0.2 adoption, run the NEW binary: sudo ./cyapi-new upgrade --file ./cyapi-new
-Example: sudo ./cyapi upgrade --file ./cyapi-new --sha256 <release-checksum>`,
+	"upgrade": `upgrade [--config config.yaml] [--file NEW_BINARY --sha256 EXPECTED_SHA256]
+Without --file: check the latest stable zenpe/cyapi-go GitHub Release, download the
+matching Linux binary, verify SHA256SUMS, then back up, migrate and restart.
+Already up to date: exit without restarting. Download/verification failures leave
+an existing service running. --file supports offline upgrades.
+Requires Linux systemd and root. After migration/readiness failure the service
+stays stopped for explicit recovery.
+Example: sudo ./cyapi upgrade
+Offline: sudo ./cyapi upgrade --file ./cyapi-new --sha256 <release-checksum>
+For older versions lacking automatic updates, run the NEW binary once:
+sudo ./cyapi-new upgrade --file ./cyapi-new`,
 	"backup": `backup --output NEW_DIRECTORY [--config config.yaml] [--include-config]
 Create a consistent checksummed database and source snapshot backup.
 --include-config adds restricted config/secrets recovery files; keep them private.

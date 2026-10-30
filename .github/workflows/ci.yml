@@ -61,7 +61,8 @@ jobs:
       - name: Build current and v0.0.2 executables
         run: |
           mkdir -p dist
-          CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=ci-current" -o dist/cyapi-current ./cmd/cyapi
+          CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=v0.0.4" -o dist/cyapi-current ./cmd/cyapi
+          CGO_ENABLED=0 go test -c -o dist/cyapi-ops-test ./cmd/cyapi
           git fetch origin refs/tags/v0.0.2
           git worktree add --detach /tmp/cyapi-legacy-source be9900dab018e6ec7d618e2d09d1e71d6cebe16b
           cd /tmp/cyapi-legacy-source
@@ -71,3 +72,5 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y acl
           sudo python3 scripts/test_nas_install.py --binary "$PWD/dist/cyapi-current" --legacy "$PWD/dist/cyapi-legacy"
+      - name: Exercise automatic GitHub upgrade with controlled release fixture
+        run: sudo env NAS_UPGRADE_TEST_BINARY="$PWD/dist/cyapi-current" NAS_UPGRADE_TEST_LEGACY="$PWD/dist/cyapi-legacy" "$PWD/dist/cyapi-ops-test" -test.run '^TestAutomaticUpgradeSystemd$' -test.v -test.timeout=4m

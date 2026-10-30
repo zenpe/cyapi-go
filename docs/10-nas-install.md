@@ -65,7 +65,7 @@ install 生成的配置启用 maintenance；旧配置和示例默认关闭，避
 sudo ./cyapi upgrade --file ./cyapi-new --sha256 发布方提供的SHA256
 ```
 
-仅管理本程序注册的 Linux systemd 服务，不在线下载可执行文件。先在安装目录暂存候选文件，校验摘要、版本和目标架构，再停止服务；使用旧程序生成 upgrade- 恢复备份，使用候选程序执行显式 migrate，保存带时间戳的 previous 程序，替换并启动健康检查。备份包含受限配置和密钥。建议始终提供发布方摘要。
+仅管理本程序注册的 Linux systemd 服务。默认不带 --file 时会自动从 zenpe/cyapi-go 的 GitHub 最新稳定版下载对应架构原始二进制和 SHA256SUMS；下载、摘要、架构及版本校验均在停服前完成。已是最新版时退出，不重启。--file 保留为离线升级方式。先在安装目录暂存候选文件，校验摘要、版本和目标架构，再停止服务；使用旧程序生成 upgrade- 恢复备份，使用候选程序执行显式 migrate，保存带时间戳的 previous 程序，替换并启动健康检查。备份包含受限配置和密钥。建议始终提供发布方摘要。
 
 普通 serve 永远不自动迁移 schema。备份失败不更新程序/数据库，并尝试恢复旧服务；进入迁移阶段后任何失败都保持服务停止，不自动让旧程序连接可能已升级的数据库。升级状态记录在 .cyapi-upgrade.json，日志给出备份路径。保留的 previous 程序和 upgrade- 备份不自动清理，验收成功后由管理员归档。
 
@@ -112,3 +112,15 @@ sudo ./cyapi status
 新程序从已有 root 管理的 systemd 服务核实安装路径和服务用户，忽略旧 data/install.json 中的可执行文件路径。停服后统一业务目录权限，以服务身份备份和迁移，再替换程序并验证新版本。账号、原密钥、已有音源和监听端口（例如 18081）保留。
 
 托管安装不继承安装者 shell 的 CYAPI 配置覆盖；把稳定配置放入 config.yaml、凭据放入 secrets.env。systemd 不会继承当前 shell 的 GitHub 或代理变量；网络代理应按服务环境单独配置。
+
+
+## 一条命令自动升级（v0.0.4 起）
+
+```sh
+cd /vol1/appdata/cyapi
+sudo ./cyapi upgrade
+```
+
+自动查询最新稳定版、选择 amd64/arm64 二进制、下载和校验，然后复用备份、迁移、替换和健康验证流程。已是相同或更新版本时不下载、不停服；网络、GitHub 限额或校验失败时保持现有服务运行，显示重试或离线升级方式。下载有超时和体积上限，临时文件在失败后清理。可选的 GitHub token 复用 secrets.env 中 sources.github_token_env 指定的凭据，只发送给 GitHub API。
+
+v0.0.2/v0.0.3 还没有自动下载逻辑，需要最后手动上传一次新程序，通过 `sudo ./cyapi-new upgrade --file ./cyapi-new` 接管。升级到支持自动更新的版本后，日常直接运行 `sudo ./cyapi upgrade`。NAS 连不上 GitHub 时，仍可上传文件后使用 --file。

@@ -24,8 +24,11 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	if e := flags.Parse(args); e != nil {
 		return e
 	}
-	if flags.NArg() != 0 || *file == "" {
-		return errors.New("usage: cyapi upgrade --file NEW_BINARY [--sha256 HASH] [--config config.yaml]")
+	if flags.NArg() != 0 {
+		return errors.New("usage: cyapi upgrade [--file NEW_BINARY --sha256 HASH] [--config config.yaml]")
+	}
+	if *file == "" && *expected != "" {
+		return errors.New("--sha256 requires --file; automatic upgrades verify SHA256SUMS themselves")
 	}
 	if targetOS() != "linux" || !systemdAvailable() || !isRoot() {
 		return errors.New("managed upgrade requires Linux systemd and root; see manual upgrade/recovery documentation")
@@ -36,7 +39,7 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	}
 	i, e := loadUpgradeInstallation(c)
 	if e != nil || i.Unit == "" {
-		return errors.New("no managed systemd installation; use the manual upgrade procedure")
+		return fmt.Errorf("cannot load managed systemd installation: %w", e)
 	}
 	absolute, e := filepath.Abs(*path)
 	if e != nil || absolute != i.Config {
@@ -47,6 +50,35 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 		return e
 	}
 	defer unlock()
+	onlineTag := ""
+	if *file == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		command, err := serviceCommand(ctx, i.User, i.Binary, "version")
+		if err != nil {
+			return err
+		}
+		installedBytes, err := command.Output()
+		if err != nil {
+			return fmt.Errorf("cannot read installed version: %w", err)
+		}
+		fields := strings.Fields(string(installedBytes))
+		if len(fields) < 2 || fields[0] != "cyapi" {
+			return errors.New("invalid installed version output")
+		}
+		fmt.Println("Checking latest stable release from GitHub...")
+		downloaded, hash, tag, err := newReleaseUpdater(c.Env(c.Sources.GitHubTokenEnv)).downloadLatest(ctx, i.Root, fields[1], targetArch())
+		if err != nil {
+			return fmt.Errorf("automatic update failed before stopping service: %w; retry or use upgrade --file NEW_BINARY", err)
+		}
+		if downloaded == "" {
+			return nil
+		}
+		defer os.Remove(downloaded)
+		*file = downloaded
+		*expected = hash
+		onlineTag = tag
+	}
 	staged := filepath.Join(i.Root, ".cyapi-upgrade-"+time.Now().UTC().Format("20060102T150405.000000000"))
 	if e = copyExecutable(*file, staged); e != nil {
 		return e
@@ -79,6 +111,9 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 		return errors.New("candidate version/architecture check failed; service was not stopped")
 	}
 	candidateVersion := strings.Fields(string(versionBytes))[1]
+	if onlineTag != "" && candidateVersion != onlineTag {
+		return errors.New("downloaded binary version differs from release tag; service was not stopped")
+	}
 	i.Version = candidateVersion
 	return executeUpgrade(i, c, staged, digest, log, upgradeOps{
 		service: systemctl,

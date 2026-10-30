@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ASSETS = (
     "cyapi-linux-amd64", "cyapi-linux-arm64", "cyapi-windows-amd64.exe",
@@ -34,6 +35,17 @@ def release_info(repo, tag):
             if release["tag_name"] == tag:
                 return release
     return None
+
+
+def wait_for_release(repo, tag):
+    # Draft/list visibility can lag behind a successful create response.
+    for delay in (0, 0.5, 1, 2, 4):
+        if delay:
+            time.sleep(delay)
+        info = release_info(repo, tag)
+        if info is not None:
+            return info
+    raise ValueError("Created release is not visible yet; rerun to resume")
 
 
 def checksum(path):
@@ -84,9 +96,7 @@ def publish(directory, repo, tag, sha, keep_draft, prerelease):
     if info is None:
         gh("release", "create", tag, "--repo", repo, "--verify-tag", "--target", sha,
            "--title", tag, "--generate-notes", "--draft")
-        info = release_info(repo, tag)
-        if info is None:
-            raise ValueError("Created release is not visible yet; rerun to resume")
+        info = wait_for_release(repo, tag)
     missing = verify_remote(directory, repo, tag, info, hashes)
     if missing:
         gh("release", "upload", tag, "--repo", repo, *[str(directory / name) for name in missing])

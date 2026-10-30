@@ -93,6 +93,12 @@ class PublishTests(unittest.TestCase):
 
 
 class ReleaseLookupTests(unittest.TestCase):
+    def test_created_draft_eventually_becomes_visible(self):
+        release = {"tag_name": "v0.0.4", "draft": True, "assets": []}
+        with patch.object(publisher, "release_info", side_effect=[None, None, release]), patch.object(publisher.time, "sleep") as wait:
+            self.assertEqual(publisher.wait_for_release("owner/repo", "v0.0.4"), release)
+            self.assertEqual(wait.call_count, 2)
+
     def test_public_release_uses_tag_endpoint(self):
         release = {"tag_name": "v0.0.2", "draft": False, "assets": []}
         with patch.object(publisher, "gh", return_value=json.dumps(release)) as call:
