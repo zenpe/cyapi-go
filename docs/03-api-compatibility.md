@@ -55,7 +55,7 @@
 
 歌曲解析大部分返回 URL，/song 的 type=down 重定向保持。首期不实现 B 站、抖音、MPD 或媒体代理；frp 只改变入站访问，平台请求默认走 NAS 出口。
 
-/lx/sources 和 /lx/script 为公开路由，列表包括 path/name/directory/downloadUrl，支持嵌套路径和编码文件名；下载原始字节。默认保持 no-store，ETag 用内容摘要稳定生成，不承诺与 R2 旧 ETag 相同。
+/lx/sources 和 /lx/script 为公开路由，列表只包括 path/name/directory，不返回 downloadUrl。客户端通过当前服务器的 /lx/script 接口及 path 查询参数下载，支持嵌套路径和编码文件名；下载原始字节。客户端应先升级，再升级移除 downloadUrl 的后端；新客户端兼容旧后端额外返回的该字段。默认保持 no-store，ETag 用内容摘要稳定生成，不承诺与 R2 旧 ETag 相同。
 
 ## 7. 占位能力与明确差异
 

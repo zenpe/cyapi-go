@@ -182,10 +182,10 @@ func TestReleaseSyncHTTPAndRollback(t *testing.T) {
 	if e = json.Unmarshal(w.Body.Bytes(), &list); e != nil {
 		t.Fatal(e)
 	}
-	if len(list.Sources) != 2 || list.Sources[0].Path != "nested/a.js" || list.Sources[1].Path != "中文源.js" || list.Sources[0].Directory != "nested" || !strings.HasPrefix(list.Sources[0].DownloadURL, "http://nas.local:8080/") {
+	if len(list.Sources) != 2 || list.Sources[0].Path != "nested/a.js" || list.Sources[1].Path != "中文源.js" || list.Sources[0].Directory != "nested" {
 		t.Fatal(list)
 	}
-	// Switching between LAN and public HTTPS must not reuse a configured origin.
+	// Catalog metadata must be independent of LAN/public domains and transports.
 	for _, origin := range []string{"http://192.168.3.100:8080", "https://music.example.com", "http://[::1]:8080"} {
 		req := httptest.NewRequest("GET", origin+"/lx/sources", nil)
 		response := httptest.NewRecorder()
@@ -197,11 +197,10 @@ func TestReleaseSyncHTTPAndRollback(t *testing.T) {
 			t.Fatal(e)
 		}
 		for _, source := range list.Sources {
-			u, err := url.Parse(source.DownloadURL)
-			if err != nil || !strings.HasPrefix(source.DownloadURL, origin+"/lx/script?") || u.Query().Get("path") != source.Path {
-				t.Fatal("download URL does not follow request", source.DownloadURL)
+			if source.DownloadURL != "" {
+				t.Fatal("catalog must not contain absolute download URLs", source.DownloadURL)
 			}
-			request(t, h, u.RequestURI(), 200)
+			request(t, h, "/lx/script?path="+url.QueryEscape(source.Path), 200)
 		}
 	}
 	w = request(t, h, "/lx/script?path=nested%2Fa.js", 200)

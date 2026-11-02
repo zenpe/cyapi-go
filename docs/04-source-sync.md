@@ -74,7 +74,7 @@ manifest 记录仓库、Release ID、asset ID/更新时间、ZIP 摘要、同步
 
 ## 接口与 NAS 调度
 
-GET /lx/sources 保留 status/sources 及 path/name/directory/downloadUrl 字段，稳定排序，只暴露 .js。下载地址跟随当前请求的访问地址；可信代理可通过 X-Forwarded-Host/X-Forwarded-Proto 传递外部域名与协议，不再要求额外配置访问地址。GET /lx/script?path=... 只解码一次、只接受一个 path 参数，仅可访问 manifest 中的脚本；缺失返回 404，损坏/未初始化返回 503，非法路径返回 400。下载前校验大小和摘要，随后从已打开文件流式响应；Content-Type 为 application/javascript，no-store，摘要作为 ETag，支持标准条件/范围请求。不会暴露配置、数据库、manifest、锁或 staging。
+GET /lx/sources 返回 status/sources 及 path/name/directory 字段，稳定排序，只暴露 .js，不返回 downloadUrl。客户端通过当前所选服务器的 /lx/script 接口及 path 查询参数下载，不依赖后端推导公网协议、域名或端口。GET /lx/script?path=... 只解码一次、只接受一个 path 参数，仅可访问 manifest 中的脚本；缺失返回 404，损坏/未初始化返回 503，非法路径返回 400。下载前校验大小和摘要，随后从已打开文件流式响应；Content-Type 为 application/javascript，no-store，摘要作为 ETag，支持标准条件/范围请求。不会暴露配置、数据库、manifest、锁或 staging。
 
 首次可手工执行 sync-sources，再启动/刷新 API；后续无需重启服务。建议在 NAS 计划任务中每 6 小时执行一次同一二进制，例如：
 

@@ -9,8 +9,6 @@ import (
 	"path"
 	"sort"
 	"time"
-
-	"cyapi-go/internal/server"
 )
 
 type Handler struct {
@@ -58,7 +56,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			dir = ""
 		}
 		name := path.Base(entry.Path)
-		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir, "downloadUrl": server.RequestOrigin(r) + "/lx/script?path=" + url.QueryEscape(entry.Path)})
+		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": 200, "sources": out})
