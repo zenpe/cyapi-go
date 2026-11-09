@@ -34,14 +34,13 @@ func TestRelativePathsAndNoSecretNeeded(t *testing.T) {
 	}
 }
 
-func TestSourceProxyUsesSecretEnvironment(t *testing.T) {
-	t.Setenv("SOURCE_TEST_PROXY", "socks5://127.0.0.1:1080")
-	c, err := Load(write(t, "sources:\n  proxy_env: SOURCE_TEST_PROXY\n"))
-	if err != nil || c.Env(c.Sources.ProxyEnv) != "socks5://127.0.0.1:1080" {
+func TestSourceProxyURL(t *testing.T) {
+	c, err := Load(write(t, "sources:\n  proxy_url: socks5://127.0.0.1:1080\n"))
+	if err != nil || c.Sources.ProxyURL != "socks5://127.0.0.1:1080" {
 		t.Fatal(err)
 	}
 	legacy, err := Load(write(t, "{}\n"))
-	if err != nil || legacy.Sources.ProxyEnv != "" {
+	if err != nil || legacy.Sources.ProxyURL != "" {
 		t.Fatal("legacy config no longer works", err)
 	}
 }

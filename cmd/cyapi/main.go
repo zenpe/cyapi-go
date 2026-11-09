@@ -356,7 +356,7 @@ func serveListener(ctx context.Context, c config.Server, db server.Readiness, lo
 }
 
 func sourceManager(c config.Config) (*sources.Manager, error) {
-	return sources.New(sources.Options{Directory: c.Sources.Directory, Repo: c.Sources.Repo, Token: c.Env(c.Sources.GitHubTokenEnv), ProxyURL: c.Env(c.Sources.ProxyEnv), AllowEmpty: c.Sources.AllowEmpty, MaxZipBytes: c.Sources.MaxZipBytes, MaxFileBytes: c.Sources.MaxFileBytes, MaxTotalBytes: c.Sources.MaxTotalBytes, MaxFiles: c.Sources.MaxFiles, ReserveBytes: c.Sources.ReserveBytes})
+	return sources.New(sources.Options{Directory: c.Sources.Directory, Repo: c.Sources.Repo, Token: c.Env(c.Sources.GitHubTokenEnv), ProxyURL: c.Sources.ProxyURL, AllowEmpty: c.Sources.AllowEmpty, MaxZipBytes: c.Sources.MaxZipBytes, MaxFileBytes: c.Sources.MaxFileBytes, MaxTotalBytes: c.Sources.MaxTotalBytes, MaxFiles: c.Sources.MaxFiles, ReserveBytes: c.Sources.ReserveBytes})
 }
 
 func identityHandler(next http.Handler) http.Handler {

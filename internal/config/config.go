@@ -69,7 +69,7 @@ type Sources struct {
 	Timeout        time.Duration `yaml:"timeout"`
 	Directory      string        `yaml:"directory"`
 	GitHubTokenEnv string        `yaml:"github_token_env"`
-	ProxyEnv       string        `yaml:"proxy_env"`
+	ProxyURL       string        `yaml:"proxy_url"`
 	AllowEmpty     bool          `yaml:"allow_empty"`
 }
 type Mail struct {

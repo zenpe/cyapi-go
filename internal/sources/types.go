@@ -55,6 +55,8 @@ func New(o Options) (*Manager, error) {
 		return nil, errors.New("invalid source repository or limits")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Source synchronization uses only its explicitly configured proxy.
+	transport.Proxy = nil
 	transport.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = 15 * time.Second
 	transport.ResponseHeaderTimeout = 30 * time.Second

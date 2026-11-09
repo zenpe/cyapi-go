@@ -39,6 +39,19 @@ func TestSourceTransportTimeoutsAndDedicatedProxy(t *testing.T) {
 	}
 }
 
+func TestSourceWithoutProxyIgnoresEnvironment(t *testing.T) {
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		t.Setenv(name, "http://127.0.0.1:7890")
+	}
+	m, err := New(DefaultOptions(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.client.Transport.(*http.Transport).Proxy != nil {
+		t.Fatal("empty proxy_url must use a direct connection")
+	}
+}
+
 func TestSourceNetworkFailureIsDiagnosableAndNotRetried(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()
