@@ -13,7 +13,40 @@ on:
 permissions:
   contents: read
 jobs:
+  select-checks:
+    name: Select CI checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          CHECK_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == push && "$REF_TYPE" == branch && -z "$CHECK_REF" ]]; then
+            while IFS= read -r tag; do
+              if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+                echo 'Release tag owns CI checks for this commit.'
+                echo 'run=false' >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            done < <(git tag --points-at HEAD)
+          fi
+          echo 'run=true' >> "$GITHUB_OUTPUT"
+
   test:
+    needs: select-checks
+    if: ${{ needs.select-checks.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -48,6 +81,8 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/cyapi-linux-arm64 ./cmd/cyapi
 
   nas-install:
+    needs: select-checks
+    if: ${{ needs.select-checks.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
