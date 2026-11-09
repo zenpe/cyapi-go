@@ -196,22 +196,14 @@ func inspectCommand(args []string, doctor bool) error {
 		if !c.Maintenance.Enabled {
 			report("WARN", "Internal scheduled maintenance is disabled")
 		}
-		if *network {
+		if *network && manager != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			request, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+c.Sources.Repo+"/releases?per_page=1", nil)
-			request.Header.Set("User-Agent", "cyapi-doctor/1")
-			client := &http.Client{Timeout: 10 * time.Second}
-			r, e := client.Do(request)
+			e := manager.CheckGitHub(ctx)
 			cancel()
 			if e != nil {
-				report("WARN", "GitHub connectivity failed")
+				report("WARN", e.Error())
 			} else {
-				r.Body.Close()
-				if r.StatusCode == 200 {
-					report("PASS", "GitHub reachable")
-				} else {
-					report("WARN", fmt.Sprintf("GitHub HTTP %d", r.StatusCode))
-				}
+				report("PASS", "GitHub reachable using source synchronization network settings")
 			}
 		}
 	}

@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -20,6 +22,7 @@ import (
 
 var ErrBusy = errors.New("source synchronization already running")
 var ErrUnavailable = errors.New("source generation unavailable or damaged")
+var errSourceRedirect = errors.New("source redirect rejected")
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 var generationPattern = regexp.MustCompile(`^g-[0-9]{20}-[a-f0-9]{16}$`)
 
@@ -32,6 +35,7 @@ type Options struct {
 	MaxZipBytes, MaxFileBytes, MaxTotalBytes, ReserveBytes int64
 	MaxFiles                                               int
 	Client                                                 *http.Client
+	ProxyURL                                               string
 }
 
 func DefaultOptions(directory string) Options {
@@ -50,13 +54,28 @@ func New(o Options) (*Manager, error) {
 	if o.Directory == "" || !repoPattern.MatchString(o.Repo) || strings.Contains(o.Repo, "..") || o.MaxZipBytes < 1 || o.MaxFileBytes < 1 || o.MaxTotalBytes < 1 || o.ReserveBytes < 0 || o.MaxFiles < 1 || o.MaxFiles > 10000 || o.MaxZipBytes > 2<<30 || o.MaxTotalBytes > 8<<30 || o.MaxFileBytes > o.MaxTotalBytes || o.ReserveBytes > 1<<40 {
 		return nil, errors.New("invalid source repository or limits")
 	}
-	c := &http.Client{Timeout: 2 * time.Minute}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.TLSHandshakeTimeout = 15 * time.Second
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	if o.ProxyURL != "" {
+		proxy, err := url.Parse(o.ProxyURL)
+		if err != nil || proxy.Hostname() == "" || proxy.Fragment != "" || proxy.RawQuery != "" ||
+			(proxy.Path != "" && proxy.Path != "/") ||
+			(proxy.Scheme != "http" && proxy.Scheme != "https" && proxy.Scheme != "socks5" && proxy.Scheme != "socks5h") {
+			return nil, errors.New("invalid source proxy; use an HTTP, HTTPS or SOCKS5 proxy URL")
+		}
+		transport.Proxy = http.ProxyURL(proxy)
+	}
+	// The overall synchronization context bounds slow ZIP downloads. Do not
+	// impose the old two-minute total limit on the entire response body.
+	c := &http.Client{Transport: transport}
 	if o.Client != nil {
 		*c = *o.Client
 	}
 	c.CheckRedirect = func(r *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || !allowedURL(r.URL.Scheme, r.URL.Host, r.URL.User != nil) {
-			return errors.New("source redirect rejected")
+			return errSourceRedirect
 		}
 		if r.URL.Host != "api.github.com" {
 			r.Header.Del("Authorization")

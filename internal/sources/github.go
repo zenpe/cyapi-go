@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,8 +46,14 @@ func (m *Manager) get(ctx context.Context, address string, api bool) (*http.Resp
 		return nil, errors.New("source URL rejected")
 	}
 	for attempt := 0; attempt < 3; attempt++ {
-		req, e := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+		work := ctx
+		cancel := func() {}
+		if api {
+			work, cancel = context.WithTimeout(ctx, 45*time.Second)
+		}
+		req, e := http.NewRequestWithContext(work, http.MethodGet, address, nil)
 		if e != nil {
+			cancel()
 			return nil, errors.New("invalid source request")
 		}
 		req.Header.Set("User-Agent", "cyapi-go-source-sync/1")
@@ -58,18 +65,23 @@ func (m *Manager) get(ctx context.Context, address string, api bool) (*http.Resp
 				req.Header.Set("Authorization", "Bearer "+m.o.Token)
 			}
 		}
+		started := time.Now()
+		trace := newRequestTrace(u.Host)
+		req = req.WithContext(trace.context(req.Context()))
 		response, e := m.client.Do(req)
 		if e != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return nil, errors.New("GitHub request failed")
+			cancel()
+			return nil, sourceRequestError(ctx, trace, api, attempt+1, started, e)
 		}
 		if response.StatusCode == 200 {
+			trace.set("body", response.Request.URL.Host)
+			response.Body = &sourceResponseBody{ReadCloser: response.Body, cancel: cancel, ctx: ctx, trace: trace, api: api, attempt: attempt + 1, started: started}
 			return response, nil
 		}
 		status := response.StatusCode
 		response.Body.Close()
+		cancel()
+		slog.Warn("source request rejected", "operation", requestOperation(api), "host", trace.hostName(), "status", status, "attempt", attempt+1, "elapsed_ms", time.Since(started).Milliseconds())
 		if (status != 429 && status < 500) || attempt == 2 {
 			return nil, fmt.Errorf("GitHub returned HTTP %d", status)
 		}
@@ -104,6 +116,10 @@ func (m *Manager) latest(ctx context.Context) (release, asset, error) {
 	defer response.Body.Close()
 	var releases []release
 	if e = readJSON(response.Body, &releases, 4<<20); e != nil {
+		var failure *requestFailure
+		if body, ok := response.Body.(*sourceResponseBody); ok && errors.As(body.failure, &failure) {
+			return release{}, asset{}, failure
+		}
 		return release{}, asset{}, errors.New("invalid or oversized GitHub release response")
 	}
 	for _, r := range releases {
@@ -132,6 +148,15 @@ func (m *Manager) latest(ctx context.Context) (release, asset, error) {
 	}
 	return release{}, asset{}, errors.New("no stable release found in latest 20 releases")
 }
+
+// CheckGitHub uses the same proxy, token and transport policy as synchronization.
+func (m *Manager) CheckGitHub(ctx context.Context) error {
+	response, err := m.get(ctx, "https://api.github.com/repos/"+m.o.Repo+"/releases?per_page=1", true)
+	if err != nil {
+		return err
+	}
+	return response.Body.Close()
+}
 func (m *Manager) download(ctx context.Context, a asset, target *os.File) (int64, error) {
 	response, e := m.get(ctx, a.URL, false)
 	if e != nil {
@@ -143,6 +168,10 @@ func (m *Manager) download(ctx context.Context, a asset, target *os.File) (int64
 	}
 	n, e := io.Copy(&diskWriter{m: m, w: target, left: m.o.MaxZipBytes}, io.LimitReader(contextReader{ctx, response.Body}, m.o.MaxZipBytes+1))
 	if e != nil {
+		var failure *requestFailure
+		if errors.As(e, &failure) {
+			return n, failure
+		}
 		return n, errors.New("ZIP download interrupted")
 	}
 	if n > m.o.MaxZipBytes || a.Size > 0 && n != a.Size {

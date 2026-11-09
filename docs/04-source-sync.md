@@ -26,6 +26,7 @@ sources:
   directory: "/vol1/appdata/cyapi/data/sources"
   repo: "guoyue2010/lxmusic-"
   github_token_env: "GITHUB_TOKEN"
+  proxy_env: "CYAPI_SOURCES_PROXY" # 可选；代理 URL 放 secrets.env 或进程环境变量
   allow_empty: false
   max_zip_bytes: 536870912       # 512 MiB，沿用旧脚本
   max_file_bytes: 67108864      # 64 MiB，新增单文件预算，可调
@@ -71,6 +72,12 @@ manifest 记录仓库、Release ID、asset ID/更新时间、ZIP 摘要、同步
 成功发布后 GC 保护 current，保留最近两个 generation，并对其他版本提供至少 24 小时宽限；下载/列表/status/rollback 对固定版本持共享读取锁，GC 仅清理能获得独占锁的版本。旧版本/孤立版本回收失败记录 cleanupWarnings，不把已提交的新版本回滚。未变化轮次不额外创建版本；失败残留在下次持独占同步锁时优先处理。
 
 只允许 HTTPS 的 api.github.com/github.com/objects.githubusercontent.com/release-assets.githubusercontent.com，初始附件 URL 必须匹配已配置仓库的 releases/download 路径。最多 5 次重定向；跨主机去除 Authorization。429/5xx 最多 3 次请求，Retry-After/退避最长单次 30 秒，受整个任务 timeout 控制。
+
+家庭网络下，建连和 TLS 握手分别最多等待 15 秒，响应头最多等待 30 秒；版本信息请求连同响应体最多 45 秒。ZIP 下载不再受固定 2 分钟限制，由 sources.timeout 控制整次同步总时长，默认 10 分钟。网络连接失败、超时或响应体中断直接结束本轮，不增加网络请求内部重试；内部维护任务沿用失败后约 5 分钟补试的策略，外部 NAS 任务按其配置周期再次执行。失败的 staging 被清理，原有效音源版本继续分发。
+
+如需专用代理，在 sources.proxy_env 指定环境变量名称，并在 secrets.env 或进程环境变量中设置，例如 CYAPI_SOURCES_PROXY=http://127.0.0.1:7890。支持 HTTP、HTTPS、SOCKS5/SOCKS5H；仅影响音源同步及 doctor --network 的 GitHub 检查，不改变音乐接口。代理在其他设备上时使用后端可访问的局域网地址；Docker 内的 127.0.0.1 指向容器自身。未配置专用代理时沿用 Go 的系统代理环境变量。修改后重启后端服务使配置生效。
+
+网络失败日志包含 operation（release_metadata/zip_download）、host、stage（dns/connect/tls/response_headers/body）、reason、attempt 和 elapsed_ms，可区分版本查询失败与 ZIP 下载中断。错误不输出原始请求 URL、签名查询串、Token 或代理凭据。doctor --network 使用与同步相同的代理和鉴权设置，仍受自身 10 秒诊断预算限制。
 
 ## 接口与 NAS 调度
 

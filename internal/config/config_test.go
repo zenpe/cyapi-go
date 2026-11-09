@@ -33,6 +33,18 @@ func TestRelativePathsAndNoSecretNeeded(t *testing.T) {
 		t.Fatal("serve must require a secret")
 	}
 }
+
+func TestSourceProxyUsesSecretEnvironment(t *testing.T) {
+	t.Setenv("SOURCE_TEST_PROXY", "socks5://127.0.0.1:1080")
+	c, err := Load(write(t, "sources:\n  proxy_env: SOURCE_TEST_PROXY\n"))
+	if err != nil || c.Env(c.Sources.ProxyEnv) != "socks5://127.0.0.1:1080" {
+		t.Fatal(err)
+	}
+	legacy, err := Load(write(t, "{}\n"))
+	if err != nil || legacy.Sources.ProxyEnv != "" {
+		t.Fatal("legacy config no longer works", err)
+	}
+}
 func TestRejectsInvalidAndRedactsYAML(t *testing.T) {
 	for _, body := range []string{"database:\n  driver: mysql\n", "database:\n  busy_timeout: 0s\n", "server:\n  trusted_proxies: [all]\n", "database:\n  dsn: ':memory:'\n", "server:\n  public_base_url: https://user:password@example.com\n", "server:\n  cors_allowed_origins: ['*']\n", "unknown_secret: supersecret\n", "{}\n---\n{}\n"} {
 		_, err := Load(write(t, body))

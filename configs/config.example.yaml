@@ -35,6 +35,8 @@ sources:
   timeout: "10m"
   directory: "data/sources"
   github_token_env: "GITHUB_TOKEN"
+  # Optional dedicated proxy for source synchronization; URL belongs in secrets.env.
+  proxy_env: "CYAPI_SOURCES_PROXY"
   allow_empty: false
 mail:
   app_name: "CyreneMusic"
