@@ -290,6 +290,9 @@ func (c *Client) Request(ctx context.Context, kind string, q map[string]string) 
 	if e != nil {
 		return nil, e
 	}
+	if kind == "song" && q["metadata_only"] == "1" {
+		return map[string]any{"status": 200, "song": info}, nil
+	}
 	if kind == "lyric" {
 		l, e := c.lyric(ctx, info["id"])
 		return map[string]any{"status": 200, "data": l}, e

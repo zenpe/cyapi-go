@@ -29,7 +29,7 @@ func (s *Service) RegisterExtensions(mux *http.ServeMux, guard func(http.Handler
 				return
 			}
 			p := map[string]string{}
-			for _, key := range []string{"keywords", "page", "limit", "id", "ids", "url", "emixsongid", "cat", "category", "offset", "order", "cursor"} {
+			for _, key := range []string{"keywords", "page", "limit", "id", "ids", "url", "emixsongid", "cat", "category", "offset", "order", "cursor", "metadata_only"} {
 				if v, ok := raw[key]; ok {
 					value, valid := scalar(v)
 					if !valid || len(value) > 4096 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {

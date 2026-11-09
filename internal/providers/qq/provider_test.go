@@ -24,6 +24,41 @@ func (t routeTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	u.Host = t.target.Host
 	return http.DefaultTransport.RoundTrip(copy)
 }
+func TestQQMetadataDoesNotResolveAudioOrLyrics(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/v8/fcg-bin/fcg_play_single_song.fcg" {
+			t.Error("metadata requested audio or lyrics", r.URL.Path)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": []any{map[string]any{
+			"id": 1, "mid": "MID1", "name": "Song",
+			"album":  map[string]any{"mid": "ALBUM", "name": "Album"},
+			"singer": []any{map[string]any{"name": "Artist"}},
+		}}})
+	}))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	client, err := New(platformhttp.Options{MaxConcurrent: 2, Timeout: time.Second, Client: &http.Client{Transport: routeTransport{u}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	out, err := client.Request(context.Background(), "song", map[string]string{"ids": "MID1", "metadata_only": "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := platformhttp.Obj(out["song"])
+	if calls.Load() != 1 || info["album"] != "Album" || !strings.Contains(platformhttp.Text(info["pic"]), "ALBUM") {
+		t.Fatal("incomplete metadata", out, calls.Load())
+	}
+	if _, exists := out["music_urls"]; exists {
+		t.Fatal("metadata response contains audio")
+	}
+}
+
 func TestQQBatchProtocol(t *testing.T) {
 	var smart atomic.Int32
 	var badURL atomic.Bool
