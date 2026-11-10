@@ -103,6 +103,23 @@ func (c *Client) details(ctx context.Context, ids []int64) (map[int64]rawSong, e
 	}
 	return result, nil
 }
+func (c *Client) Metadata(ctx context.Context, id string) (music.Track, error) {
+	canonical, e := music.ParseID(id)
+	if e != nil {
+		return music.Track{}, e
+	}
+	n, _ := strconv.ParseInt(canonical, 10, 64)
+	songs, e := c.details(ctx, []int64{n})
+	if e != nil {
+		return music.Track{}, e
+	}
+	song, ok := songs[n]
+	if !ok {
+		return music.Track{}, music.BadUpstream()
+	}
+	return song.track()
+}
+
 func (c *Client) Lyric(ctx context.Context, id string) (music.Lyric, error) {
 	var out struct {
 		Code    int

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -54,6 +55,27 @@ func (play) TableName() string                 { return "play_counts" }
 func text(b map[string]any, key string) string { return requestbody.Text(b[key]) }
 func okData(data any) library.Result           { return library.OK(map[string]any{"data": data}) }
 func success() library.Result                  { return library.OK(map[string]any{"message": "ok"}) }
+
+// Omit absent presentation fields from the conflict update. Counts and timestamps
+// still advance atomically, and a later complete record can repair old metadata.
+func playUpdates(p play, at string) map[string]any {
+	updates := map[string]any{"play_count": gorm.Expr("play_counts.play_count + 1"), "last_played_at": at}
+	for key, value := range map[string]string{"track_name": p.TrackName, "artists": p.Artists, "album": p.Album} {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "", "unknown", "unknown artist", "unknown album", "unknown title",
+			"未知艺术家", "未知歌手", "未知专辑", "未知歌曲":
+			continue
+		}
+		updates[key] = value
+	}
+	u, e := url.Parse(strings.TrimSpace(p.PicURL))
+	if e == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" &&
+		!(u.Hostname() == "y.qq.com" && u.Path == "/mediastyle/global/img/album_300.png") {
+		updates["pic_url"] = p.PicURL
+	}
+	return updates
+}
+
 func (s *Store) Execute(ctx context.Context, user int64, kind string, b map[string]any) (library.Result, error) {
 	db := s.db.WithContext(ctx)
 	at := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z")
@@ -85,7 +107,7 @@ func (s *Store) Execute(ctx context.Context, user int64, kind string, b map[stri
 		return success(), e
 	case "play-count":
 		p := play{UserID: user, TrackID: text(b, "trackId"), Source: text(b, "source"), TrackName: text(b, "trackName"), Artists: text(b, "artists"), Album: text(b, "album"), PicURL: text(b, "picUrl"), PlayCount: 1, FirstPlayedAt: at, LastPlayedAt: at}
-		e := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "track_id"}, {Name: "source"}}, DoUpdates: clause.Assignments(map[string]any{"play_count": gorm.Expr("play_counts.play_count + 1"), "track_name": p.TrackName, "artists": p.Artists, "album": p.Album, "pic_url": p.PicURL, "last_played_at": at})}).Create(&p).Error
+		e := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "track_id"}, {Name: "source"}}, DoUpdates: clause.Assignments(playUpdates(p, at))}).Create(&p).Error
 		return success(), e
 	case "stats":
 		var out library.Result

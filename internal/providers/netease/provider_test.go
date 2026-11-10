@@ -298,3 +298,32 @@ func TestProviderConcurrencyAndTimeout(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestMetadataUsesOnlyDetailsAndRequiresExactID(t *testing.T) {
+	var calls atomic.Int32
+	var mismatch atomic.Bool
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/api/v3/song/detail" {
+			t.Errorf("metadata requested audio or lyrics: %s", r.URL.Path)
+			w.WriteHeader(500)
+			return
+		}
+		if mismatch.Load() {
+			writeJSON(w, map[string]any{"code": 200, "songs": []any{raw(456)}})
+		} else {
+			writeJSON(w, map[string]any{"code": 200, "songs": []any{raw(123)}})
+		}
+	}, 2, time.Second)
+	track, e := client.Metadata(context.Background(), "123")
+	if e != nil || track.ID != 123 || track.Artists != "Artist" || track.PicURL != "https://p1.music.126.net/cover.jpg" {
+		t.Fatalf("metadata: %+v %v", track, e)
+	}
+	mismatch.Store(true)
+	if _, e = client.Metadata(context.Background(), "123"); e == nil {
+		t.Fatal("accepted another song's metadata")
+	}
+	if _, e = client.Metadata(context.Background(), "invalid"); e == nil || calls.Load() != 2 {
+		t.Fatal("invalid ID reached upstream")
+	}
+}

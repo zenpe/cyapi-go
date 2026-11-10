@@ -189,3 +189,45 @@ func TestBatchUserDataAndCompatibility(t *testing.T) {
 		})
 	}
 }
+
+func TestPlayCountPreservesCompleteMetadata(t *testing.T) {
+	for _, driver := range []string{"sqlite", "postgres"} {
+		t.Run(driver, func(t *testing.T) {
+			db := database(t, driver)
+			store := userstatestore.New(db.ORM)
+			write := func(body map[string]any) {
+				t.Helper()
+				if _, e := store.Execute(context.Background(), 1, "play-count", body); e != nil {
+					t.Fatal(e)
+				}
+			}
+			body := map[string]any{"trackId": "123", "source": "qq", "trackName": "Song", "artists": "Artist", "album": "Album", "picUrl": "https://y.qq.com/real.jpg"}
+			write(body)
+			for _, missing := range []map[string]any{
+				{"trackId": "123", "source": "qq", "trackName": "Unknown", "artists": "", "album": "Unknown", "picUrl": ""},
+				{"trackId": "123", "source": "qq", "trackName": " ", "artists": "Unknown artist", "album": "", "picUrl": "https://y.qq.com/mediastyle/global/img/album_300.png?test=1"},
+			} {
+				write(missing)
+			}
+			var row struct {
+				TrackName, Artists, Album, PicURL string
+				PlayCount                         int64
+			}
+			if e := db.ORM.Table("play_counts").Where("user_id = 1 AND track_id = ? AND source = ?", "123", "qq").Take(&row).Error; e != nil {
+				t.Fatal(e)
+			}
+			if row.TrackName != "Song" || row.Artists != "Artist" || row.Album != "Album" || row.PicURL != "https://y.qq.com/real.jpg" || row.PlayCount != 3 {
+				t.Fatalf("blank play degraded metadata or lost counts: %+v", row)
+			}
+			body["artists"] = "Updated artist"
+			body["picUrl"] = "https://y.qq.com/new.jpg"
+			write(body)
+			if e := db.ORM.Table("play_counts").Where("user_id = 1 AND track_id = ? AND source = ?", "123", "qq").Take(&row).Error; e != nil {
+				t.Fatal(e)
+			}
+			if row.Artists != "Updated artist" || row.PicURL != "https://y.qq.com/new.jpg" || row.PlayCount != 4 {
+				t.Fatalf("valid metadata failed to repair record: %+v", row)
+			}
+		})
+	}
+}

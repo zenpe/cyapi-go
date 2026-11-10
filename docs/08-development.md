@@ -159,3 +159,7 @@ operationId 按用户/操作作用域记录：成功和已落库的业务失败�
 - 备份：`cyapi backup --config /absolute/config.yaml --output /absolute/new-backup-directory`，见 [部署与恢复](09-deploy-and-restore.md)。默认SQLite无需额外服务；PostgreSQL备份需匹配的pg_dump，恢复需pg_restore。默认不复制配置与秘密；外部计划任务管理保留周期和异机副本。
 
 以上为集中代码实现；本地模拟验证、真实上游可用性、NAS资源、frp链路和运维演练分别记录。旧阶段章节中的历史描述不作为最新状态，最新范围以契约矩阵为准。
+
+### Ranking metadata
+
+`POST /song` accepts `metadata_only=1` with `ids` to read Netease title, artists, album and cover only (`{status:200,data:{id,name,artists,album,picUrl}}`). This branch does not resolve audio or lyrics, requires authentication, and has a separate 15-minute metadata cache. QQ continues to use `GET /qq/song?ids=...&metadata_only=1`. Play-count upserts preserve existing metadata when the incoming field is blank, unknown, or the QQ default cover; counts and timestamps always advance.

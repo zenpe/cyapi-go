@@ -120,6 +120,10 @@ func (h *Handler) endpoint(kind string) http.HandlerFunc {
 			if q.ID == "" {
 				q.ID = get("url")
 			}
+			if get("metadata_only") == "1" {
+				q.Kind = "metadata"
+				break
+			}
 			q.Level = get("level")
 			q.Mode = get("type")
 		case "lyric":

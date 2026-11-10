@@ -101,7 +101,7 @@ func normalize(q Query) (Query, error) {
 		if q.Keywords == "" || utf8.RuneCountInString(q.Keywords) > 200 || !utf8.ValidString(q.Keywords) || strings.ContainsRune(q.Keywords, 0) || q.Page < 1 || q.Page > 1000 || q.Limit < 1 || q.Limit > 50 {
 			return q, errors.New("keywords、page 或 limit 参数无效")
 		}
-	case "song", "lyric", "playlist", "album":
+	case "song", "metadata", "lyric", "playlist", "album":
 		id, e := ParseID(q.ID)
 		if e != nil {
 			return q, errors.New("歌曲、歌单或专辑 ID 无效")
@@ -143,7 +143,7 @@ func (s *Service) Execute(ctx context.Context, user int64, ip string, q Query, b
 	switch q.Kind {
 	case "search":
 		timeout = 12 * time.Second
-	case "lyric":
+	case "lyric", "metadata":
 		timeout = 7 * time.Second
 	case "song":
 		timeout = 15 * time.Second
@@ -220,6 +220,19 @@ func (s *Service) build(ctx context.Context, q Query) Response {
 			r.Cacheable = true
 			r.TTL = 5 * time.Minute
 		}
+		return r
+	case "metadata":
+		provider, ok := s.provider.(MetadataProvider)
+		if !ok {
+			return failure(q.Kind, BadUpstream())
+		}
+		result, e := provider.Metadata(ctx, q.ID)
+		if e != nil {
+			return failure(q.Kind, e)
+		}
+		r := jsonResponse(200, map[string]any{"status": 200, "data": result})
+		r.Cacheable = true
+		r.TTL = 15 * time.Minute
 		return r
 	case "song":
 		result, e := s.provider.Song(ctx, q.ID, q.Level)

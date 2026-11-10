@@ -93,6 +93,12 @@ type Album struct {
 	Size        int          `json:"size"`
 	Songs       []AlbumTrack `json:"songs"`
 }
+
+// MetadataProvider reads presentation data without resolving audio or lyrics.
+type MetadataProvider interface {
+	Metadata(context.Context, string) (Track, error)
+}
+
 type Provider interface {
 	Search(context.Context, string, int, int) (SearchPage, error)
 	Song(context.Context, string, string) (Song, error)

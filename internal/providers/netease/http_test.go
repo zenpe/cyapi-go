@@ -200,6 +200,14 @@ func TestAuthenticatedMusicHTTP(t *testing.T) {
 	}
 	call(1, "GET", "/lyrics/netease?id=5", "", "", "", 502)
 	call(1, "GET", "/lyrics/netease?id=1&id=2", "", "", "", 400)
+	before = requests.Load()
+	metadata := call(1, "POST", "/song", `{"ids":123,"metadata_only":"1"}`, "application/json", "", 200)
+	if requests.Load() != before+1 || !strings.Contains(metadata.Body.String(), `"artists":"Artist"`) || strings.Contains(metadata.Body.String(), `"url":`) {
+		t.Fatal("metadata resolved audio/lyrics or returned invalid data", metadata.Body.String())
+	}
+	if w := call(1, "POST", "/song", "ids=123&metadata_only=1", "application/x-www-form-urlencoded", "", 200); w.Header().Get("X-Cache") != "HIT" || requests.Load() != before+1 {
+		t.Fatal("metadata response was not cached separately")
+	}
 	song := call(1, "POST", "/song", `{"ids":123,"level":"lossless","type":"json"}`, "application/json", "", 200)
 	if !strings.Contains(song.Body.String(), `"url":"https://m10.music.126.net/music.flac"`) {
 		t.Fatal(song.Body.String())
