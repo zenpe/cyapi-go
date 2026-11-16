@@ -5,6 +5,7 @@ import (
 	"cyapi-go/internal/backup"
 	"cyapi-go/internal/config"
 	"cyapi-go/internal/persistence"
+	"cyapi-go/internal/sourcerecommendation"
 	"cyapi-go/internal/sources"
 	"encoding/json"
 	"errors"
@@ -80,7 +81,7 @@ func startMaintenance(ctx context.Context, c config.Config, configPath string, d
 			work, cancel := context.WithTimeout(ctx, 30*time.Minute)
 			defer cancel()
 			output := filepath.Join(c.Maintenance.BackupDirectory, "auto-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
-			_, e := backup.Run(work, db, backup.Options{Output: output, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: true, ConfigPath: configPath, SecretsPath: c.SecretsFile, CredentialKeyPath: filepath.Join(c.RuntimeDirectory, "netease.key")})
+			_, e := backup.Run(work, db, backup.Options{Output: output, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: true, ConfigPath: configPath, SecretsPath: c.SecretsFile, CredentialKeyPath: filepath.Join(c.RuntimeDirectory, "netease.key"), SourceChecksDirectory: filepath.Join(c.RuntimeDirectory, "source-checks"), Recommendations: sourcerecommendation.New(filepath.Join(c.RuntimeDirectory, "source-recommendations"), c.Sources.Directory, nil, nil)})
 			state.Backup.Running = false
 			if e != nil {
 				state.Backup.Error = "backup failed; inspect database, sources and available disk space"

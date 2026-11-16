@@ -7,7 +7,7 @@ toolchain go1.27.3
 require (
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sys v0.49.0
-	golang.org/x/text v0.21.0
+	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
@@ -16,6 +16,13 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2/v2 v2.11.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50 // indirect
+)
+
+require (
+	github.com/dop251/goja v0.0.0-20261110204830-f493a2b600d6
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

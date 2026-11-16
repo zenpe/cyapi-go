@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"cyapi-go/internal/persistence"
+	"cyapi-go/internal/sourcecheck"
+	"cyapi-go/internal/sourcerecommendation"
 	"cyapi-go/internal/sources"
 	"database/sql"
 	"encoding/hex"
@@ -28,13 +30,17 @@ type Manifest struct {
 	SourcesGeneration                  string
 	SourceFiles                        int
 	RecoveryFiles                      map[string]string `json:",omitempty"`
+	SourceCheckFiles                   map[string]string `json:",omitempty"`
+	RecommendationFiles                map[string]string `json:",omitempty"`
 	ConfigIncluded                     bool
 }
 type Options struct {
+	Recommendations                                *sourcerecommendation.Store
 	Output, DSN, Version, Commit, SourcesDirectory string
 	IncludeConfig                                  bool
 	ConfigPath, SecretsPath                        string
 	CredentialKeyPath                              string
+	SourceChecksDirectory                          string
 	Manager                                        *sources.Manager
 }
 
@@ -137,6 +143,23 @@ func Run(ctx context.Context, db *persistence.Database, o Options) (Manifest, er
 			manifest.SourceFiles = len(snapshot.Manifest.Files)
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return Manifest{}, errors.New("source directory cannot be inspected")
+		}
+	}
+
+	if o.Recommendations != nil {
+		hashes, err := o.Recommendations.Backup(ctx, stage)
+		if err != nil {
+			return Manifest{}, err
+		}
+		manifest.RecommendationFiles = hashes
+	}
+	if o.SourceChecksDirectory != "" {
+		hashes, err := sourcecheck.BackupSnapshot(ctx, o.SourceChecksDirectory, filepath.Join(stage, "source-checks"))
+		if err != nil {
+			return Manifest{}, err
+		}
+		if len(hashes) > 0 {
+			manifest.SourceCheckFiles = hashes
 		}
 	}
 

@@ -23,6 +23,14 @@ type Maintenance struct {
 	BackupKeep      int           `yaml:"backup_keep"`
 }
 
+type SourceRecommendation struct {
+	Enabled bool `yaml:"enabled"`
+}
+type Admin struct {
+	Enabled bool    `yaml:"enabled"`
+	UserIDs []int64 `yaml:"user_ids"`
+}
+
 type Config struct {
 	FilePath         string      `yaml:"-"`
 	SecretsFile      string      `yaml:"secrets_file"`
@@ -30,13 +38,15 @@ type Config struct {
 	Maintenance      Maintenance `yaml:"maintenance"`
 	values           map[string]string
 
-	Server    Server    `yaml:"server"`
-	Database  Database  `yaml:"database"`
-	Auth      Auth      `yaml:"auth"`
-	Cache     Cache     `yaml:"cache"`
-	Sources   Sources   `yaml:"sources"`
-	Mail      Mail      `yaml:"mail"`
-	Providers Providers `yaml:"providers"`
+	SourceRecommendation SourceRecommendation `yaml:"source_recommendation"`
+	Admin                Admin                `yaml:"admin"`
+	Server               Server               `yaml:"server"`
+	Database             Database             `yaml:"database"`
+	Auth                 Auth                 `yaml:"auth"`
+	Cache                Cache                `yaml:"cache"`
+	Sources              Sources              `yaml:"sources"`
+	Mail                 Mail                 `yaml:"mail"`
+	Providers            Providers            `yaml:"providers"`
 }
 type Server struct {
 	Listen             string        `yaml:"listen"`
@@ -178,6 +188,16 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	seenAdmin := map[int64]bool{}
+	for _, id := range c.Admin.UserIDs {
+		if id <= 0 || seenAdmin[id] {
+			return errors.New("admin.user_ids must be unique positive user IDs")
+		}
+		seenAdmin[id] = true
+	}
+	if len(c.Admin.UserIDs) > 64 || (c.Admin.Enabled && len(c.Admin.UserIDs) == 0) {
+		return errors.New("enabled admin requires 1..64 user IDs")
+	}
 	if c.RuntimeDirectory == "" {
 		return errors.New("runtime_directory is required")
 	}

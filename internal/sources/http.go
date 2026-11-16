@@ -11,14 +11,22 @@ import (
 	"time"
 )
 
+const RecommendedPath = "推荐/recommended.js"
+
+type Recommendation interface {
+	CatalogItem() (map[string]string, error)
+	ServeRecommendedScript(http.ResponseWriter, *http.Request)
+}
 type Handler struct {
-	manager *Manager
-	log     *slog.Logger
+	recommendation Recommendation
+	manager        *Manager
+	log            *slog.Logger
 }
 
 func NewHandler(m *Manager, log *slog.Logger) *Handler {
-	return &Handler{m, log}
+	return &Handler{manager: m, log: log}
 }
+func (h *Handler) WithRecommendation(p Recommendation) *Handler { h.recommendation = p; return h }
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /lx/sources", h.list)
 	mux.HandleFunc("GET /lx/script", h.script)
@@ -31,15 +39,27 @@ func (h *Handler) failure(w http.ResponseWriter, status int, message string) {
 }
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	out := []map[string]string{}
+	if h.recommendation != nil {
+		if item, e := h.recommendation.CatalogItem(); e == nil {
+			out = append(out, item)
+		} else {
+			h.log.Debug("recommendation catalog unavailable", "error", e.Error())
+		}
+	}
 	s, e := h.manager.Current()
 	if e != nil {
-		h.failure(w, 503, "暂时无法获取音源列表，请稍后重试")
+		if len(out) == 0 {
+			h.failure(w, 503, "暂时无法获取音源列表，请稍后重试")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]any{"status": 200, "sources": out})
 		return
 	}
 	defer s.Close()
-	out := []map[string]string{}
 	for _, entry := range s.Manifest.Files {
-		if !isScript(entry.Path) {
+		if !isScript(entry.Path) || entry.Path == RecommendedPath {
 			continue
 		}
 		if e = checkContext(r.Context()); e != nil {
@@ -56,7 +76,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			dir = ""
 		}
 		name := path.Base(entry.Path)
-		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir})
+		out = append(out, map[string]string{"path": entry.Path, "name": name[:len(name)-3], "directory": dir, "sha256": entry.SHA256, "generation": s.Manifest.Generation})
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": 200, "sources": out})
@@ -67,6 +87,14 @@ func (h *Handler) script(w http.ResponseWriter, r *http.Request) {
 	paths := query["path"]
 	if e != nil || len(paths) != 1 || !isScript(paths[0]) {
 		h.failure(w, 400, "无效的音源路径")
+		return
+	}
+	if paths[0] == RecommendedPath {
+		if h.recommendation == nil {
+			h.failure(w, 404, "暂未配置推荐音源")
+			return
+		}
+		h.recommendation.ServeRecommendedScript(w, r)
 		return
 	}
 	s, e := h.manager.Current()

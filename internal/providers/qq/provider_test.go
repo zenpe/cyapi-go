@@ -163,3 +163,32 @@ func TestQQBatchProtocol(t *testing.T) {
 		t.Fatal("accepted unsafe media URL")
 	}
 }
+
+func TestSampleMetadataDurationAndIdentity(t *testing.T) {
+	var mismatch atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v8/fcg-bin/fcg_play_single_song.fcg" {
+			t.Error("unexpected endpoint")
+		}
+		mid := "MID1"
+		if mismatch.Load() {
+			mid = "OTHER"
+		}
+		json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": []any{map[string]any{"mid": mid, "name": "Song", "interval": 212, "singer": []any{map[string]any{"name": "Artist"}}}}})
+	}))
+	defer server.Close()
+	u, _ := url.Parse(server.URL)
+	client, e := New(platformhttp.Options{MaxConcurrent: 1, Timeout: time.Second, Client: &http.Client{Transport: routeTransport{u}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer client.Close()
+	m, e := client.Metadata(context.Background(), "MID1")
+	if e != nil || m.DurationMS != 212000 || m.ID != "MID1" {
+		t.Fatal(m, e)
+	}
+	mismatch.Store(true)
+	if _, e = client.Metadata(context.Background(), "MID1"); e == nil {
+		t.Fatal("wrong song accepted")
+	}
+}

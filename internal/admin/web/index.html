@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>音源检测 · Cyrene</title>
+  <link rel="stylesheet" href="source-management/assets/style.css">
+  <script defer src="source-management/assets/app.js"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="source-management"><span class="brand-icon">C</span><span>CYRENE <small>音源管理</small></span></a><div id="identity" hidden><span id="username"></span><button id="logout" class="quiet">退出登录</button></div></header>
+  <main>
+    <section id="login-panel" class="login-panel">
+      <div class="eyebrow">SOURCE DIAGNOSTICS</div><h1>让音源状态<br>一目了然。</h1><p class="muted">使用已获授权的账号登录，管理测试歌曲、运行检测并查看结果。</p>
+      <form id="login-form" class="login-card"><h2>登录管理页面</h2><label>账号<input id="account" name="username" autocomplete="username" required placeholder="用户名或邮箱"></label><label>密码<input id="password" name="password" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">登录</button><p id="login-error" role="alert" class="error"></p><p class="muted small">需在服务配置中为账号授予管理权限。</p></form>
+    </section>
+    <section id="workspace" hidden>
+      <div class="heading"><div><div class="eyebrow">SOURCE DIAGNOSTICS</div><h1>音源检测</h1><p class="muted">用真实歌曲验证解析与资源，查看每一次失败的原因。</p></div><button id="refresh" class="secondary">刷新状态</button></div>
+      <p id="notice" role="status" aria-live="polite" hidden></p><p id="warning" class="warning" hidden></p>
+      <div class="tabs" role="tablist" aria-label="管理内容"><button id="tab-sources" role="tab" aria-controls="sources-panel" aria-selected="true">音源与推荐</button><button id="tab-samples" role="tab" aria-controls="samples-panel" aria-selected="false" tabindex="-1">测试歌曲</button></div>
+      <section id="sources-panel" role="tabpanel" aria-labelledby="tab-sources">
+        <section id="recommendation-panel" class="task-card"><h2>当前推荐</h2><p id="recommendation-current" class="muted">正在读取…</p><p id="recommendation-note" class="small"></p><details><summary>发布历史与回退</summary><div id="recommendation-history"></div></details></section>
+        <div class="stats"><div><span>当前音源</span><strong id="source-count">—</strong></div><div><span>有匹配检测记录</span><strong id="tested-count">—</strong></div><div><span>启用的测试歌曲</span><strong id="sample-count">—</strong></div></div>
+        <section id="task-panel" class="task-card" hidden aria-label="当前检测任务"><div class="task-heading"><div><span class="live-dot"></span><strong id="task-title">正在检测</strong><span id="task-count" class="muted"></span></div><div><button id="task-detail" class="quiet">查看结果</button><button id="cancel-task" class="secondary">取消检测</button></div></div><progress id="task-progress" max="1" value="0"></progress><p id="task-note" class="muted small">关闭页面后任务仍会继续。</p></section>
+        <div class="toolbar"><label class="search"><span class="sr-only">搜索音源</span><input id="search" type="search" placeholder="搜索名称或目录"></label><label><span class="sr-only">检测平台</span><select id="platform"><option value="">QQ 与网易</option><option value="qq">仅 QQ</option><option value="netease">仅网易</option></select></label><button id="check-all" class="primary">检测全部</button></div>
+        <div class="table-wrap"><table><thead><tr><th>音源</th><th>QQ · 标准音质</th><th>网易 · 标准音质</th><th>操作</th></tr></thead><tbody id="source-rows"></tbody></table><div id="source-empty" class="empty" hidden>没有匹配的音源。</div></div>
+        <p class="footnote">“资源可识别”表示读到了音频结构，不代表完整播放或歌曲内容验证通过。检测结果超过 24 小时会标记过期。</p>
+        <section class="history"><h2>最近检测</h2><div id="history-list"></div></section>
+      </section>
+      <section id="samples-panel" role="tabpanel" aria-labelledby="tab-samples" hidden>
+        <div class="section-heading"><div><h2>测试歌曲</h2><p class="muted">添加时自动获取歌曲详情。修改只影响下一批检测，当前任务使用启动时的样例。</p></div></div>
+        <form id="sample-form" class="sample-form"><label>平台<select id="sample-platform"><option value="qq">QQ 音乐</option><option value="netease">网易云音乐</option></select></label><label class="grow">歌曲 ID<input id="track-id" required maxlength="64" placeholder="例如 002X3Bu82FiBhb"></label><button type="submit" class="primary">获取详情并添加</button></form>
+        <div class="table-wrap"><table><thead><tr><th>歌曲</th><th>平台</th><th>完整时长</th><th>状态</th><th>操作</th></tr></thead><tbody id="sample-rows"></tbody></table><div id="sample-empty" class="empty" hidden>还没有测试歌曲，添加一首开始。</div></div>
+      </section>
+    </section>
+  </main>
+  <dialog id="report-dialog" aria-labelledby="report-title"><div class="dialog-heading"><div><div class="eyebrow">DETECTION REPORT</div><h2 id="report-title">检测报告</h2></div><button id="close-report" class="secondary" aria-label="关闭检测报告">关闭</button></div><p id="report-meta" class="muted"></p><button id="refresh-report" class="quiet">刷新报告</button><div id="report-results"></div></dialog>
+  <dialog id="publish-dialog" aria-labelledby="publish-title"><form id="publish-form"><h2 id="publish-title">发布推荐音源</h2><p id="publish-target"></p><p id="publish-health" class="warning"></p><label>发布说明<textarea id="publish-note" required maxlength="2000" rows="3" placeholder="说明选择或回退此版本的原因"></textarea></label><p id="publish-error" class="error" role="alert"></p><div class="actions"><button type="button" id="close-publish" class="secondary">取消</button><button type="submit" class="primary">确认发布</button></div></form></dialog>
+  <footer>Cyrene · 检测结果基于当前服务器的网络环境</footer>
+</body>
+</html>

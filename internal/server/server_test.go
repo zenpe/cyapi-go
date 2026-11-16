@@ -93,3 +93,23 @@ func TestDeferredQRLoginNotAvailable(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminSameOriginIsolation(t *testing.T) {
+	h := NewHandler(config.Server{CORSAllowedOrigins: []string{"https://app.example"}}, readiness{}, slog.Default(), func(m *http.ServeMux) {
+		m.HandleFunc("POST /admin/test", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
+	})
+	for _, tc := range []struct {
+		origin string
+		want   int
+	}{{"http://example.com", 204}, {"https://app.example", 403}, {"https://evil.example", 403}} {
+		r := httptest.NewRequest("POST", "http://example.com/admin/test", nil)
+		r.Header.Set("Origin", tc.origin)
+		r.Header.Set("X-Forwarded-Host", "evil.example")
+		r.RemoteAddr = "198.51.100.1:1234"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("%s: %d", tc.origin, w.Code)
+		}
+	}
+}

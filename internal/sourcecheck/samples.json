@@ -1,0 +1,116 @@
+{
+  "format": 1,
+  "samples": [
+    {
+      "id": "qq-002X3Bu82FiBhb",
+      "platform": "qq",
+      "trackId": "002X3Bu82FiBhb",
+      "enabled": true,
+      "title": "别再问我什么是迪斯科",
+      "musicInfo": {
+        "source": "tx",
+        "songmid": "002X3Bu82FiBhb",
+        "name": "别再问我什么是迪斯科",
+        "songName": "别再问我什么是迪斯科",
+        "singer": "张蔷",
+        "artist": "张蔷",
+        "albumName": "别再问我什么是迪斯科"
+      },
+      "expectedDurationMs": 217000,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    },
+    {
+      "id": "qq-000mkfVC48z4QV",
+      "platform": "qq",
+      "trackId": "000mkfVC48z4QV",
+      "enabled": true,
+      "title": "Time Machine",
+      "musicInfo": {
+        "source": "tx",
+        "songmid": "000mkfVC48z4QV",
+        "name": "Time Machine",
+        "songName": "Time Machine",
+        "singer": "Ingrid Michaelson",
+        "artist": "Ingrid Michaelson",
+        "albumName": "Lights Out"
+      },
+      "expectedDurationMs": 212000,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    },
+    {
+      "id": "qq-000eqWl32hjFXR",
+      "platform": "qq",
+      "trackId": "000eqWl32hjFXR",
+      "enabled": true,
+      "title": "Everybody Cha Cha",
+      "musicInfo": {
+        "source": "tx",
+        "songmid": "000eqWl32hjFXR",
+        "name": "Everybody Cha Cha",
+        "songName": "Everybody Cha Cha",
+        "singer": "Cecil Jonni Lauro",
+        "artist": "Cecil Jonni Lauro",
+        "albumName": "Everybody Cha Cha"
+      },
+      "expectedDurationMs": 191000,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    },
+    {
+      "id": "netease-186016",
+      "platform": "netease",
+      "trackId": "186016",
+      "enabled": true,
+      "title": "晴天",
+      "musicInfo": {
+        "source": "wy",
+        "songmid": "186016",
+        "name": "晴天",
+        "songName": "晴天",
+        "singer": "周杰伦",
+        "artist": "周杰伦",
+        "albumName": "叶惠美",
+        "id": 186016
+      },
+      "expectedDurationMs": 269000,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    },
+    {
+      "id": "netease-2600493765",
+      "platform": "netease",
+      "trackId": "2600493765",
+      "enabled": true,
+      "title": "恋人",
+      "musicInfo": {
+        "source": "wy",
+        "songmid": "2600493765",
+        "name": "恋人",
+        "songName": "恋人",
+        "singer": "李荣浩",
+        "artist": "李荣浩",
+        "albumName": "黑马",
+        "id": 2600493765
+      },
+      "expectedDurationMs": 275912,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    },
+    {
+      "id": "netease-347230",
+      "platform": "netease",
+      "trackId": "347230",
+      "enabled": true,
+      "title": "海阔天空",
+      "musicInfo": {
+        "source": "wy",
+        "songmid": "347230",
+        "name": "海阔天空",
+        "songName": "海阔天空",
+        "singer": "Beyond",
+        "artist": "Beyond",
+        "albumName": "海阔天空",
+        "id": 347230
+      },
+      "expectedDurationMs": 326000,
+      "durationEvidence": "2026-11-13 official song-detail API snapshot"
+    }
+  ]
+}

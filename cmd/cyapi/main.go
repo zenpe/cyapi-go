@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"cyapi-go/internal/admin"
 	"cyapi-go/internal/auth"
 	"cyapi-go/internal/backup"
 	"cyapi-go/internal/compat"
@@ -34,6 +35,8 @@ import (
 	"cyapi-go/internal/providers/platformhttp"
 	"cyapi-go/internal/providers/qq"
 	"cyapi-go/internal/server"
+	"cyapi-go/internal/sourcecheck"
+	"cyapi-go/internal/sourcerecommendation"
 	"cyapi-go/internal/sources"
 	"cyapi-go/internal/userstate"
 )
@@ -52,6 +55,9 @@ func main() {
 }
 func run(args []string, log *slog.Logger) error {
 	originalCLI := append([]string{}, args...)
+	if len(args) > 0 && args[0] == "_source-probe-worker" {
+		return sourceProbeWorker(args[1:])
+	}
 	if len(args) > 0 && args[0] == "_install-local" {
 		return installLocal(args[1:], log, true)
 	}
@@ -78,13 +84,21 @@ func run(args []string, log *slog.Logger) error {
 	}
 	sourceAction := ""
 	if command == "sources" {
-		if len(args) < 2 || (args[1] != "status" && args[1] != "rollback") {
-			return errors.New("usage: cyapi sources <status|rollback> --config path [--generation id]")
+		if len(args) < 2 || (args[1] != "status" && args[1] != "rollback" && args[1] != "check" && args[1] != "check-status") {
+			return errors.New("usage: cyapi sources <status|rollback|check|check-status> --config path [--generation id]")
 		}
 		sourceAction = args[1]
 		args = append([]string{args[0]}, args[2:]...)
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	var checkPath, checkPlatform, checkSamples *string
+	var allowUnconfined *bool
+	if sourceAction == "check" {
+		checkPath = flags.String("source-path", "", "check one catalog script path")
+		checkPlatform = flags.String("platform", "", "qq or netease; default both")
+		checkSamples = flags.String("samples", "", "sample JSON file; default runtime_directory/source-checks/samples.json")
+		allowUnconfined = flags.Bool("allow-unconfined-worker", false, "explicitly allow manual diagnostics without a hard worker memory limit")
+	}
 	var force, dry *bool
 	var generation *string
 	var backupOutput *string
@@ -143,6 +157,13 @@ func run(args []string, log *slog.Logger) error {
 				}
 				childArgs = append(childArgs, "--log-file", absolute)
 			}
+			if checkSamples != nil && *checkSamples != "" {
+				absolute, e := filepath.Abs(*checkSamples)
+				if e != nil {
+					return e
+				}
+				childArgs = append(childArgs, "--samples", absolute)
+			}
 			cmd, e := serviceCommand(context.Background(), i.User, self, childArgs...)
 			if e != nil {
 				return e
@@ -172,10 +193,20 @@ func run(args []string, log *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if sourceAction == "check-status" {
+		report, e := sourcecheck.LatestReport(filepath.Join(c.RuntimeDirectory, "source-checks"))
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
+	}
 	if command == "sync-sources" || command == "sources" {
 		manager, e := sourceManager(c)
 		if e != nil {
 			return e
+		}
+		if sourceAction == "check" {
+			return runSourceCheck(ctx, c, manager, *checkPath, *checkPlatform, *checkSamples, *allowUnconfined, log)
 		}
 		operation, cancel := context.WithTimeout(ctx, c.Sources.Timeout)
 		defer cancel()
@@ -240,7 +271,7 @@ func run(args []string, log *slog.Logger) error {
 		}
 		work, cancel := context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
-		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: *includeConfig, ConfigPath: *path, SecretsPath: c.SecretsFile, CredentialKeyPath: filepath.Join(c.RuntimeDirectory, "netease.key")})
+		manifest, e := backup.Run(work, db, backup.Options{Output: *backupOutput, DSN: c.Database.DSN, Version: version, Commit: commit, SourcesDirectory: c.Sources.Directory, Manager: manager, IncludeConfig: *includeConfig, ConfigPath: *path, SecretsPath: c.SecretsFile, CredentialKeyPath: filepath.Join(c.RuntimeDirectory, "netease.key"), SourceChecksDirectory: filepath.Join(c.RuntimeDirectory, "source-checks"), Recommendations: sourcerecommendation.New(filepath.Join(c.RuntimeDirectory, "source-recommendations"), c.Sources.Directory, nil, nil)})
 		if e != nil {
 			return e
 		}
@@ -305,7 +336,14 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	checks := &sourcecheck.Service{Directory: filepath.Join(c.RuntimeDirectory, "source-checks"), Sources: sourceFiles, Runner: sourcecheck.Executor{}}
+	recommendations := sourcerecommendation.New(filepath.Join(c.RuntimeDirectory, "source-recommendations"), c.Sources.Directory, sourceFiles, checks)
+	recommendationRoutes := func(*http.ServeMux) {}
 	sourceRoutes := sources.NewHandler(sourceFiles, log)
+	if c.SourceRecommendation.Enabled {
+		sourceRoutes.WithRecommendation(recommendations)
+		recommendationRoutes = recommendations.Register
+	}
 	authRoutes := auth.NewHandler(accounts, server.ClientIP, log)
 	musicRoutes := music.NewHandler(musicService, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) })
 	libraryStore := librarystore.New(db.ORM)
@@ -314,6 +352,35 @@ func run(args []string, log *slog.Logger) error {
 	compatibility := func(mux *http.ServeMux) { compat.Register(mux, authRoutes.Protect) }
 	extraRoutes := func(mux *http.ServeMux) {
 		musicService.RegisterExtensions(mux, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }, map[string]music.Extension{"netease": neteaseClient, "qq": qqClient, "kugou": kugouClient})
+	}
+	adminRoutes := func(*http.ServeMux) {}
+	if c.Admin.Enabled {
+
+		if e := checks.Recover(); e != nil {
+			log.Error("source check recovery failed; reports may require repair", "error", e.Error())
+		}
+		controller := sourcecheck.NewController(ctx, checks)
+		defer func() {
+			stop, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if e := controller.Close(stop); e != nil {
+				log.Error("source checks shutdown incomplete", "error", e.Error())
+			}
+		}()
+		metadata := func(ctx context.Context, platform, id string) (sourcecheck.Metadata, error) {
+			var m music.Metadata
+			var e error
+			switch platform {
+			case "qq":
+				m, e = qqClient.Metadata(ctx, id)
+			case "netease":
+				m, e = neteaseClient.SampleMetadata(ctx, id)
+			default:
+				return sourcecheck.Metadata{}, sourcecheck.ErrInvalid
+			}
+			return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS}, e
+		}
+		adminRoutes = admin.New(checks, controller, sourceFiles, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 20*time.Second) }, c.Admin.UserIDs, metadata, log).WithRecommendations(recommendations, c.SourceRecommendation.Enabled).Register
 	}
 	listener, err := net.Listen("tcp", c.Server.Listen)
 	if err != nil {
@@ -325,7 +392,7 @@ func run(args []string, log *slog.Logger) error {
 	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
 	waitMaintenance := startMaintenance(maintenanceCtx, c, *path, db, sourceFiles, log)
 	defer func() { stopMaintenance(); waitMaintenance() }()
-	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes, neteaseaccount.NewHandler(platformAccounts, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }).Register)
+	return serveListener(ctx, c.Server, db, log, listener, authRoutes.Register, libraryRoutes.Register, sourceRoutes.Register, recommendationRoutes, adminRoutes, musicRoutes.Register, userRoutes.Register, compatibility, extraRoutes, neteaseaccount.NewHandler(platformAccounts, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }).Register)
 }
 
 func serveListener(ctx context.Context, c config.Server, db server.Readiness, log *slog.Logger, listener net.Listener, register ...func(*http.ServeMux)) error {

@@ -1,0 +1,186 @@
+package sourcecheck
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+func checkResource(ctx context.Context, client *http.Client, raw string, expected *int64) (out ResourceResult) {
+	out = ResourceResult{Status: "unverified", Assessment: "unknown"}
+	start := time.Now()
+	defer func() { out.ElapsedMS = time.Since(start).Milliseconds() }()
+	u, e := url.Parse(raw)
+	if e != nil {
+		out.Reason = "invalid URL"
+		return
+	}
+	out.Host = u.Hostname()
+	req, e := http.NewRequestWithContext(ctx, "GET", raw, nil)
+	if e != nil {
+		out.Reason = safe(e)
+		return
+	}
+	req.Header.Set("Range", "bytes=0-8388607")
+	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("User-Agent", "lx-music-request")
+	resp, e := client.Do(req)
+	if e != nil {
+		out.Status = "unreachable"
+		out.Reason = safe(e)
+		return
+	}
+	defer resp.Body.Close()
+	out.HTTPStatus = resp.StatusCode
+	if resp.StatusCode != 200 && resp.StatusCode != 206 {
+		out.Status = "unreachable"
+		out.Reason = "audio HTTP " + http.StatusText(resp.StatusCode)
+		return
+	}
+	if resp.StatusCode == 206 && !strings.HasPrefix(resp.Header.Get("Content-Range"), "bytes 0-") {
+		out.Reason = "unexpected partial content offset"
+		return
+	}
+	if enc := resp.Header.Get("Content-Encoding"); enc != "" && enc != "identity" {
+		out.Reason = "unsupported audio content encoding"
+		return
+	}
+	data, e := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	out.Bytes = len(data)
+	if e == nil {
+		e = accountDecoded(client, len(data))
+	}
+	if e != nil {
+		out.Status = "unreachable"
+		out.Reason = safe(e)
+		return
+	}
+	identifyAudio(data, &out)
+	if out.DurationMS != nil && expected != nil {
+		if *out.DurationMS*100 < *expected*80 && *expected-*out.DurationMS > 15000 {
+			out.Assessment = "suspected_short_resource"
+		} else {
+			out.Assessment = "no_short_duration_detected"
+		}
+	}
+	return
+}
+
+// Recognizing structure is deliberately weaker than decoding or verifying the song.
+func identifyAudio(data []byte, out *ResourceResult) {
+	if len(data) == 0 {
+		out.Status = "invalid"
+		out.Reason = "empty resource"
+		return
+	}
+	trimmed := bytes.TrimSpace(data)
+	if bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<!doctype html")) || bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<html")) || json.Valid(trimmed) {
+		out.Status = "invalid"
+		out.Reason = "resource is a text error response, not audio"
+		return
+	}
+	if len(data) >= 42 && string(data[:4]) == "fLaC" && data[4]&127 == 0 && data[5] == 0 && data[6] == 0 && data[7] == 34 {
+		packed := binary.BigEndian.Uint64(data[18:26])
+		rate := int64(packed >> 44)
+		samples := int64(packed & 0xfffffffff)
+		if rate > 0 && samples > 0 {
+			out.Status = "recognized_audio"
+			out.Format = "flac"
+			ms := samples * 1000 / rate
+			out.DurationMS = &ms
+			out.DurationMethod = "flac_streaminfo"
+			return
+		}
+	}
+	start := 0
+	if len(data) >= 10 && string(data[:3]) == "ID3" {
+		for _, v := range data[6:10] {
+			if v&128 != 0 {
+				out.Reason = "invalid ID3 size"
+				return
+			}
+		}
+		start = 10 + int(data[6])<<21 + int(data[7])<<14 + int(data[8])<<7 + int(data[9])
+		if data[3] == 4 && data[5]&16 != 0 {
+			start += 10
+		}
+	}
+	for off := start; off+4 <= len(data) && off < start+4096; off++ {
+		size, rate, samples, side := mp3Frame(data[off:])
+		if size == 0 || off+size+4 > len(data) {
+			continue
+		}
+		next, _, _, _ := mp3Frame(data[off+size:])
+		if next == 0 {
+			continue
+		}
+		out.Status = "recognized_audio"
+		out.Format = "mp3"
+		xing := off + 4 + side
+		if data[off+1]&1 == 0 {
+			xing += 2
+		}
+		var count uint32
+		method := ""
+		if xing+12 <= len(data) && (string(data[xing:xing+4]) == "Xing" || string(data[xing:xing+4]) == "Info") && binary.BigEndian.Uint32(data[xing+4:xing+8])&1 != 0 {
+			count = binary.BigEndian.Uint32(data[xing+8 : xing+12])
+			method = "mp3_xing"
+		}
+		vbri := off + 36
+		if count == 0 && vbri+18 <= len(data) && string(data[vbri:vbri+4]) == "VBRI" {
+			count = binary.BigEndian.Uint32(data[vbri+14 : vbri+18])
+			method = "mp3_vbri"
+		}
+		if count > 0 && count < 10000000 {
+			ms := int64(count) * int64(samples) * 1000 / int64(rate)
+			out.DurationMS = &ms
+			out.DurationMethod = method
+		}
+		return
+	}
+	out.Reason = "format or duration evidence not supported within read budget"
+}
+
+// MPEG layer III only. Require a second valid frame before calling it audio.
+func mp3Frame(b []byte) (size, rate, samples, side int) {
+	if len(b) < 4 || b[0] != 255 || b[1]&224 != 224 || b[1]&6 != 2 {
+		return
+	}
+	version := (b[1] >> 3) & 3
+	bi := (b[2] >> 4) & 15
+	sr := (b[2] >> 2) & 3
+	if version == 1 || bi == 0 || bi == 15 || sr == 3 {
+		return
+	}
+	rates := [3]int{44100, 48000, 32000}
+	rate = rates[sr]
+	samples = 1152
+	side = 32
+	bits := [16]int{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0}
+	coefficient := 144000
+	if version != 3 {
+		bits = [16]int{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
+		rate /= 2
+		samples = 576
+		side = 17
+		coefficient = 72000
+		if version == 0 {
+			rate /= 2
+		}
+	}
+	if b[3]>>6 == 3 {
+		if version == 3 {
+			side = 17
+		} else {
+			side = 9
+		}
+	}
+	size = coefficient*bits[bi]/rate + int((b[2]>>1)&1)
+	return
+}

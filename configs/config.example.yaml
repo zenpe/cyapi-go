@@ -8,6 +8,10 @@ maintenance:
   backup_directory: "backups"
   backup_keep: 7
 
+admin:
+  enabled: false
+  user_ids: [] # Existing account IDs allowed to manage source checks.
+
 server:
   listen: "127.0.0.1:8080"
   trusted_proxies: []
@@ -52,3 +56,6 @@ providers:
   netease_cookie_env: "NETEASE_COOKIE"
   qq_cookie_env: "QQ_COOKIE"
   kugou_cookie_env: "KUGOU_COOKIE"
+
+source_recommendation:
+  enabled: false

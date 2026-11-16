@@ -327,3 +327,19 @@ func TestMetadataUsesOnlyDetailsAndRequiresExactID(t *testing.T) {
 		t.Fatal("invalid ID reached upstream")
 	}
 }
+
+func TestSampleMetadataIncludesDuration(t *testing.T) {
+	client := mockClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/song/detail" {
+			t.Error(r.URL.Path)
+		}
+		writeJSON(w, map[string]any{"code": 200, "songs": []any{map[string]any{"id": 123, "name": "Song", "ar": []any{map[string]any{"name": "Artist"}}, "dt": 212345}}})
+	}, 1, time.Second)
+	m, e := client.SampleMetadata(context.Background(), "123")
+	if e != nil || m.DurationMS != 212345 || m.ID != "123" {
+		t.Fatal(m, e)
+	}
+	if _, e = client.SampleMetadata(context.Background(), "456"); e == nil {
+		t.Fatal("wrong ID accepted")
+	}
+}

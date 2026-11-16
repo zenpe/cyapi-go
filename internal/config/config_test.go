@@ -68,3 +68,15 @@ func TestDSNEnvAndExplicitOverride(t *testing.T) {
 		t.Fatal(c.Database, err)
 	}
 }
+
+func TestAdminAllowlistValidation(t *testing.T) {
+	for _, body := range []string{"admin:\n  enabled: true\n", "admin:\n  enabled: true\n  user_ids: [1, 1]\n", "admin:\n  user_ids: [-1]\n"} {
+		if _, e := Load(write(t, body)); e == nil {
+			t.Fatal("invalid admin accepted", body)
+		}
+	}
+	c, e := Load(write(t, "admin:\n  enabled: true\n  user_ids: [7]\n"))
+	if e != nil || !c.Admin.Enabled || c.Admin.UserIDs[0] != 7 {
+		t.Fatal(e)
+	}
+}

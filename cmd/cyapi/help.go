@@ -61,6 +61,14 @@ Download the approved GitHub Release ZIP, validate and atomically publish source
 An existing running synchronization is skipped. Failure preserves current sources.`,
 	"sources": `sources status [--config config.yaml]
 sources rollback --generation ID [--config config.yaml]
+sources check [--config config.yaml] [--source-path PATH] [--platform qq|netease]
+              [--samples FILE] [--allow-unconfined-worker]
+sources check-status [--config config.yaml]
+Check runs bounded isolated LX diagnostics and audio structure checks, then saves
+JSON reports under runtime_directory/source-checks/runs. Default samples are seeded
+on first check; check-status reads the latest report without executing scripts.
+Linux needs delegated cgroup v2 memory limits; --allow-unconfined-worker is an
+explicit manual diagnostic override. It is never enabled automatically.
 Status verifies the current source files. Rollback changes the published generation.`,
 	"version": `version | --version
 Print version, revision, Go version and target architecture. No config required.`,
@@ -81,7 +89,7 @@ Usage: cyapi <command> [options]
 Install/run:  install, serve, status
 Maintenance:  doctor, backup, upgrade, config edit
 Database:     migrate, schema-status
-Sources:      sync-sources, sources status, sources rollback
+Sources:      sync-sources, sources status, sources rollback, sources check, sources check-status
 Information:  help, version
 
 ./cyapi install                    Install in the current directory

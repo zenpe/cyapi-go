@@ -123,10 +123,17 @@ func NewHandler(c config.Server, db Readiness, log *slog.Logger, register ...fun
 			}
 			log.Info("http request", "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds(), "trace", trace)
 		}()
+		var originOK bool
+		r, originOK = withRequestOrigin(r, prefixes)
+		if !originOK {
+			respond(rec, http.StatusBadRequest, map[string]any{"status": 400, "message": "Invalid request origin"})
+			return
+		}
 		// Vary applies also to requests without Origin, preventing cache mixing.
 		rec.Header().Add("Vary", "Origin")
 		if origin := r.Header.Get("Origin"); origin != "" {
-			if !origins[origin] {
+			sameOrigin := origin == RequestOrigin(r)
+			if !sameOrigin && (!origins[origin] || strings.HasPrefix(r.URL.Path, "/admin/")) {
 				respond(rec, 403, map[string]any{"status": 403, "message": "Origin not allowed"})
 				return
 			}
@@ -135,15 +142,9 @@ func NewHandler(c config.Server, db Readiness, log *slog.Logger, register ...fun
 			rec.Header().Set("Access-Control-Expose-Headers", "X-Trace-ID, Retry-After")
 		}
 		if r.Method == http.MethodOptions {
-			rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			rec.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Cache-Control")
 			rec.WriteHeader(http.StatusNoContent)
-			return
-		}
-		var originOK bool
-		r, originOK = withRequestOrigin(r, prefixes)
-		if !originOK {
-			respond(rec, http.StatusBadRequest, map[string]any{"status": 400, "message": "Invalid request origin"})
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), clientIPKey{}, clientIP(r, prefixes)))
