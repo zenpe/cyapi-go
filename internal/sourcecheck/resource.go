@@ -3,7 +3,9 @@ package sourcecheck
 import (
 	"bytes"
 	"context"
+	"cyapi-go/internal/music"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"mime"
@@ -24,6 +26,7 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 		return
 	}
 	out.Host = u.Hostname()
+	out.Extension = resourceExtension(u)
 	req, e := http.NewRequestWithContext(ctx, "GET", raw, nil)
 	if e != nil {
 		out.Reason = safe(e)
@@ -31,8 +34,9 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 	}
 	req.Header.Set("Range", "bytes=0-8388607")
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("User-Agent", "lx-music-request")
-	resp, e := client.Do(req)
+	applyAudioHeaders(req)
+	audioClient := resourceHTTPClient(client)
+	resp, e := audioClient.Do(req)
 	if e != nil {
 		out.Status = "unreachable"
 		out.Reason = safe(e)
@@ -43,6 +47,9 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 	out.HTTPStatus = resp.StatusCode
 	if resp.Request != nil && resp.Request.URL != nil {
 		out.FinalHost = resp.Request.URL.Hostname()
+		if ext := resourceExtension(resp.Request.URL); ext != "" {
+			out.Extension = ext
+		}
 	}
 	out.ContentType, _, _ = mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	out.ContentRange = safe(resp.Header.Get("Content-Range"))
@@ -75,13 +82,23 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 		out.ReasonCode = "resource_read_failed"
 		return
 	}
+	out.Complete = completeAudioResponse(resp, len(data), out.ReadLimit)
+	if len(data) > 0 {
+		out.HeaderHex = hex.EncodeToString(data[:min(len(data), 16)])
+	}
 	identifyAudio(data, &out)
-	if out.DurationMS != nil && expected != nil {
-		if *out.DurationMS*100 < *expected*80 && *expected-*out.DurationMS > 15000 {
-			out.Assessment = "suspected_short_resource"
-		} else {
-			out.Assessment = "no_short_duration_detected"
+	explainUnknownResource(&out)
+	if out.Complete {
+		out.SHA256 = digest(data)
+		if out.Format == "mp3" {
+			if ms, ok := completeMP3Duration(data); ok {
+				out.DurationMS = &ms
+				out.DurationMethod = "mp3_complete_frames"
+			}
 		}
+	}
+	if out.DurationMS != nil && expected != nil {
+		out.Assessment = music.AssessAudioDuration(*expected, *out.DurationMS)
 	}
 	return
 }
@@ -100,6 +117,10 @@ func identifyAudio(data []byte, out *ResourceResult) {
 		out.Reason = "resource is a text error response, not audio"
 		out.Signature = "text_response"
 		out.ReasonCode = "non_audio_response"
+		return
+	}
+	if len(data) >= 4 && string(data[:4]) == "OggS" {
+		identifyOgg(data, out)
 		return
 	}
 	if len(data) >= 16 && string(data[4:8]) == "ftyp" {

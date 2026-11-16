@@ -25,11 +25,13 @@ func (e *UpstreamError) Error() string { return "music upstream unavailable" }
 func BadUpstream() error               { return &UpstreamError{Status: 502} }
 
 type Track struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Artists string `json:"artists"`
-	Album   string `json:"album"`
-	PicURL  string `json:"picUrl"`
+	LXMetadata LXMetadata `json:"lxMetadata,omitempty"`
+	DurationMS int64      `json:"durationMs,omitempty"`
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Artists    string     `json:"artists"`
+	Album      string     `json:"album"`
+	PicURL     string     `json:"picUrl"`
 }
 type PlaylistTrack struct {
 	Track
@@ -50,17 +52,19 @@ type Lyric struct {
 	TLyric    string `json:"tlyric"`
 }
 type Song struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Pic       string    `json:"pic"`
-	Artist    string    `json:"ar_name"`
-	Album     string    `json:"al_name"`
-	Level     string    `json:"level"`
-	Size      string    `json:"size"`
-	URL       string    `json:"url"`
-	Lyric     string    `json:"lyric"`
-	TLyric    string    `json:"tlyric"`
-	ExpiresAt time.Time `json:"-"`
+	LXMetadata LXMetadata `json:"lxMetadata,omitempty"`
+	DurationMS int64      `json:"durationMs,omitempty"`
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Pic        string     `json:"pic"`
+	Artist     string     `json:"ar_name"`
+	Album      string     `json:"al_name"`
+	Level      string     `json:"level"`
+	Size       string     `json:"size"`
+	URL        string     `json:"url"`
+	Lyric      string     `json:"lyric"`
+	TLyric     string     `json:"tlyric"`
+	ExpiresAt  time.Time  `json:"-"`
 }
 type Playlist struct {
 	ID                 int64           `json:"id"`

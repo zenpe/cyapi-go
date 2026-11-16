@@ -91,7 +91,16 @@ func mapped(item map[string]any) map[string]any {
 	if album == "" {
 		album = p.Text(item["albumName"])
 	}
-	return map[string]any{"name": p.Text(item["name"]), "album": album, "singer": strings.Join(singers, ", "), "pic": strings.Replace(cover, "http://", "https://", 1), "mid": p.Text(item["mid"]), "id": item["id"]}
+	out := map[string]any{"name": p.Text(item["name"]), "album": album, "singer": strings.Join(singers, ", "), "pic": strings.Replace(cover, "http://", "https://", 1), "mid": p.Text(item["mid"]), "id": item["id"]}
+	meta := lxMetadata(item)
+	meta.Image = cover
+	if !meta.Empty() {
+		out["lxMetadata"] = meta
+	}
+	if seconds := p.Int(item["interval"]); seconds > 0 && seconds <= 86400 {
+		out["durationMs"] = seconds * 1000
+	}
+	return out
 }
 func (c *Client) search(ctx context.Context, q map[string]string) (map[string]any, error) {
 	page, _ := strconv.Atoi(q["page"])
@@ -263,7 +272,7 @@ func (c *Client) playlist(ctx context.Context, id string) (map[string]any, error
 		if !idPattern.MatchString(mid) || m["name"] == "" {
 			return nil, music.BadUpstream()
 		}
-		tracks = append(tracks, map[string]any{"id": mid, "name": m["name"], "artists": m["singer"], "album": m["album"], "picUrl": m["pic"], "sourcePosition": i})
+		tracks = append(tracks, map[string]any{"id": mid, "name": m["name"], "artists": m["singer"], "album": m["album"], "picUrl": m["pic"], "sourcePosition": i, "durationMs": m["durationMs"], "lxMetadata": m["lxMetadata"]})
 	}
 	return map[string]any{"id": dir["id"], "name": dir["title"], "coverImgUrl": dir["picurl"], "creator": dir["nick"], "trackCount": len(tracks), "expectedTrackCount": expected, "resolvedTrackCount": len(tracks), "complete": int64(len(tracks)) == expected, "tracks": tracks}, nil
 }
@@ -340,7 +349,7 @@ func (c *Client) FetchSnapshot(ctx context.Context, source, id string) (library.
 	s := library.RemoteSnapshot{Name: p.Text(body["name"]), ExpectedCount: int(body["expectedTrackCount"].(int64)), Complete: body["complete"] == true}
 	for _, v := range body["tracks"].([]any) {
 		t := v.(map[string]any)
-		s.Tracks = append(s.Tracks, library.RemoteTrack{Track: library.Track{TrackID: p.Text(t["id"]), Name: p.Text(t["name"]), Artists: p.Text(t["artists"]), Album: p.Text(t["album"]), PicURL: p.Text(t["picUrl"]), Source: "qq"}, SourcePosition: t["sourcePosition"].(int)})
+		s.Tracks = append(s.Tracks, library.RemoteTrack{Track: library.Track{TrackID: p.Text(t["id"]), Name: p.Text(t["name"]), Artists: p.Text(t["artists"]), Album: p.Text(t["album"]), PicURL: p.Text(t["picUrl"]), Source: "qq", LXMetadata: music.ParseLXMetadata(t["lxMetadata"]), DurationMS: optionalDuration(t["durationMs"])}, SourcePosition: t["sourcePosition"].(int)})
 	}
 	return s, nil
 }

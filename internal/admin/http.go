@@ -354,10 +354,10 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 type platformHealth struct {
-	Recognized, Short, Failed, Unverified, Unsupported, Canceled, Limited int
-	CheckedAt                                                             time.Time
-	RunID                                                                 string
-	Stale                                                                 bool
+	Recognized, Short, Failed, Unverified, Unsupported, Canceled, Limited, Duplicate, SuspectedEncrypted int
+	CheckedAt                                                                                            time.Time
+	RunID                                                                                                string
+	Stale                                                                                                bool
 }
 type sourceRow struct {
 	Generation string                     `json:"generation"`
@@ -422,6 +422,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 				health.CheckedAt = x.CheckedAt
 			}
 			health.Stale = time.Since(health.CheckedAt) > 24*time.Hour
+			if x.Resource.ReasonCode == "suspected_encrypted_resource" {
+				health.SuspectedEncrypted++
+			}
+			if len(x.Resource.DuplicateSampleIDs) > 0 {
+				health.Duplicate++
+			}
 			category := sourcecheck.ClassifyResult(x)
 			if category == sourcecheck.OutcomeFailed && sourcecheck.ProbeLimited(x) {
 				health.Limited++

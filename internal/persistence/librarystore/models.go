@@ -26,6 +26,7 @@ func (p playlist) public() map[string]any {
 }
 
 type catalog struct {
+	DurationMS                                          *int64
 	ID                                                  int64
 	Source, SourceTrackID, Name, Artists, Album, PicURL string
 	SourceIDsJSON                                       *string `gorm:"column:source_ids_json"`
@@ -35,7 +36,7 @@ type catalog struct {
 
 func (catalog) TableName() string { return "playlist_tracks_catalog" }
 func (c catalog) track() library.Track {
-	return library.Track{TrackID: c.SourceTrackID, Name: c.Name, Artists: c.Artists, Album: c.Album, PicURL: c.PicURL, Source: c.Source, SourceIDs: library.DecodeSource(c.SourceIDsJSON)}
+	return library.Track{LXMetadata: library.DecodeLXMetadata(c.SourceIDsJSON), DurationMS: c.DurationMS, TrackID: c.SourceTrackID, Name: c.Name, Artists: c.Artists, Album: c.Album, PicURL: c.PicURL, Source: c.Source, SourceIDs: library.DecodeSource(c.SourceIDsJSON)}
 }
 
 type item struct {
@@ -46,6 +47,7 @@ type item struct {
 func (item) TableName() string { return "local_playlist_items" }
 
 type favorite struct {
+	DurationMS                                             *int64
 	ID, UserID                                             int64
 	TrackID, Name, Artists, Album, PicURL, Source, AddedAt string
 	SourceIDsJSON                                          *string `gorm:"column:source_ids_json"`
@@ -53,7 +55,7 @@ type favorite struct {
 
 func (favorite) TableName() string { return "favorites" }
 func (f favorite) public() map[string]any {
-	return map[string]any{"trackId": f.TrackID, "name": f.Name, "artists": f.Artists, "album": f.Album, "picUrl": f.PicURL, "source": f.Source, "sourceIds": library.DecodeSource(f.SourceIDsJSON), "addedAt": f.AddedAt}
+	return map[string]any{"trackId": f.TrackID, "name": f.Name, "artists": f.Artists, "album": f.Album, "picUrl": f.PicURL, "source": f.Source, "sourceIds": library.DecodeSource(f.SourceIDsJSON), "addedAt": f.AddedAt, "durationMs": f.DurationMS, "lxMetadata": library.DecodeLXMetadata(f.SourceIDsJSON)}
 }
 
 type operation struct {

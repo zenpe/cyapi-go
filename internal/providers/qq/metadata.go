@@ -46,5 +46,5 @@ func (c *Client) Metadata(ctx context.Context, id string) (music.Metadata, error
 	if title == "" || len(names) == 0 || seconds < 0 || seconds > 86400 {
 		return music.Metadata{}, music.BadUpstream()
 	}
-	return music.Metadata{ID: id, Title: title, Artist: strings.Join(names, "、"), Album: album, DurationMS: seconds * 1000}, nil
+	return music.Metadata{ID: id, Title: title, Artist: strings.Join(names, "、"), Album: album, DurationMS: seconds * 1000, LXMetadata: music.ParseLXMetadata(mapped(raw)["lxMetadata"])}, nil
 }

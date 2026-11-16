@@ -378,7 +378,7 @@ func run(args []string, log *slog.Logger) error {
 			default:
 				return sourcecheck.Metadata{}, sourcecheck.ErrInvalid
 			}
-			return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS}, e
+			return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS, LXMetadata: m.LXMetadata}, e
 		}
 		adminRoutes = admin.New(checks, controller, sourceFiles, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 20*time.Second) }, c.Admin.UserIDs, metadata, log).WithRecommendations(recommendations, c.SourceRecommendation.Enabled).Register
 	}

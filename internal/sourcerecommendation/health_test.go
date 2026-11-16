@@ -25,8 +25,8 @@ func TestRecommendationHealthUsesObservedOutcomes(t *testing.T) {
 		{SampleID: "blocked", Resolution: "failed", FailureOrigin: "probe"},
 		{SampleID: "permission", Resolution: "failed", FailureOrigin: "source", ProbeIssues: []string{"probe_policy: blocked"}},
 		{SampleID: "404", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unreachable", HTTPStatus: 404}},
-		{SampleID: "unknown", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unverified"}},
-		{SampleID: "m4a", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio"}},
+		{SampleID: "unknown", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unverified", ReasonCode: "suspected_encrypted_resource"}},
+		{SampleID: "m4a", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio", DuplicateSampleIDs: []string{"other"}}},
 		{SampleID: "short", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio", Assessment: "suspected_short_resource"}},
 		{SampleID: "canceled", Resolution: "canceled"},
 	}}
@@ -40,7 +40,7 @@ func TestRecommendationHealthUsesObservedOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := s.Describe(current).Health["qq"]
-	if h == nil || h.Failed != 3 || h.Limited != 2 || h.Unverified != 1 || h.Recognized != 1 || h.Short != 1 || h.Canceled != 1 {
+	if h == nil || h.Failed != 3 || h.Limited != 2 || h.Unverified != 1 || h.Recognized != 1 || h.Short != 1 || h.Canceled != 1 || h.Duplicate != 1 || h.SuspectedEncrypted != 1 {
 		t.Fatalf("%+v", h)
 	}
 	// Old detector records remain readable but cannot contaminate current health.

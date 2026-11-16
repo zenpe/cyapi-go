@@ -14,7 +14,7 @@ import (
 )
 
 const ProtocolVersion = 1
-const ProbeVersion = "goja-probe-v2"
+const ProbeVersion = "goja-probe-v5"
 const MaxScriptBytes = 8 << 20
 const MaxJobBytes = 12 << 20
 const TaskTimeout = 40 * time.Second
@@ -114,24 +114,29 @@ func (j Job) validate() error {
 }
 
 type ResourceResult struct {
-	Status         string `json:"status"`
-	Host           string `json:"host,omitempty"`
-	FinalHost      string `json:"finalHost,omitempty"`
-	HTTPStatus     int    `json:"httpStatus,omitempty"`
-	ContentType    string `json:"contentType,omitempty"`
-	ContentRange   string `json:"contentRange,omitempty"`
-	ContentLength  int64  `json:"contentLength,omitempty"`
-	Signature      string `json:"signature,omitempty"`
-	ReadLimit      bool   `json:"readLimit,omitempty"`
-	Codec          string `json:"codec,omitempty"`
-	Bytes          int    `json:"bytes"`
-	Format         string `json:"format,omitempty"`
-	DurationMS     *int64 `json:"durationMs,omitempty"`
-	DurationMethod string `json:"durationMethod,omitempty"`
-	Assessment     string `json:"assessment"`
-	Reason         string `json:"reason,omitempty"`
-	ReasonCode     string `json:"reasonCode,omitempty"`
-	ElapsedMS      int64  `json:"elapsedMs"`
+	Extension          string   `json:"extension,omitempty"`
+	HeaderHex          string   `json:"headerHex,omitempty"`
+	DuplicateSampleIDs []string `json:"duplicateSampleIds,omitempty"`
+	Complete           bool     `json:"complete,omitempty"`
+	SHA256             string   `json:"sha256,omitempty"`
+	Status             string   `json:"status"`
+	Host               string   `json:"host,omitempty"`
+	FinalHost          string   `json:"finalHost,omitempty"`
+	HTTPStatus         int      `json:"httpStatus,omitempty"`
+	ContentType        string   `json:"contentType,omitempty"`
+	ContentRange       string   `json:"contentRange,omitempty"`
+	ContentLength      int64    `json:"contentLength,omitempty"`
+	Signature          string   `json:"signature,omitempty"`
+	ReadLimit          bool     `json:"readLimit,omitempty"`
+	Codec              string   `json:"codec,omitempty"`
+	Bytes              int      `json:"bytes"`
+	Format             string   `json:"format,omitempty"`
+	DurationMS         *int64   `json:"durationMs,omitempty"`
+	DurationMethod     string   `json:"durationMethod,omitempty"`
+	Assessment         string   `json:"assessment"`
+	Reason             string   `json:"reason,omitempty"`
+	ReasonCode         string   `json:"reasonCode,omitempty"`
+	ElapsedMS          int64    `json:"elapsedMs"`
 }
 type Result struct {
 	Format         int              `json:"format"`

@@ -131,7 +131,7 @@ func executeJob(ctx context.Context, j Job, client *http.Client) (r Result) {
 	}
 	s.cpu = 1500 * time.Millisecond
 	s.deadline = time.Now().Add(12 * time.Second)
-	req := map[string]any{"requestKey": j.ID, "source": j.Sample.source(), "action": "musicUrl", "info": map[string]any{"musicInfo": j.Sample.MusicInfo, "type": j.Quality}}
+	req := map[string]any{"requestKey": j.ID, "source": j.Sample.source(), "action": "musicUrl", "info": map[string]any{"musicInfo": j.Sample.lxMusicInfo(), "type": j.Quality}}
 	resolveStart := time.Now()
 	r.Resolution = "failed"
 	e = s.eval("resolve", "__lx_sendRequest__("+jsJSON(req)+")")

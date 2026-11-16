@@ -118,11 +118,88 @@
     }
     return btoa(binary);
   }
+  // Buffer-compatible values at the LX boundary, without exposing Node APIs.
+  class LXBuffer extends Uint8Array {
+    static from(value, encoding, length) {
+      if (typeof value === 'string') {
+        const format = String(encoding || 'utf8').toLowerCase().replace('-', '');
+        if (format === 'hex') {
+          const hex = value.match(/^[0-9a-f]*/i)[0];
+          return new LXBuffer((hex.match(/../g) || []).map(b => parseInt(b, 16)));
+        }
+        if (format === 'base64' || format === 'base64url') {
+          let text = value.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/]/g, '');
+          if (text.length % 4 === 1) text = text.slice(0, -1);
+          while (text.length % 4) text += '=';
+          return new LXBuffer(Array.from(atob(text), c => c.charCodeAt(0)));
+        }
+        if (format === 'latin1' || format === 'binary' || format === 'ascii') {
+          const out = new LXBuffer(value.length);
+          for (let i=0; i<value.length; i++) out[i] = value.charCodeAt(i) & 255;
+          return out;
+        }
+        if (format === 'utf16le' || format === 'ucs2') {
+          const out = new LXBuffer(value.length * 2);
+          for (let i = 0; i < value.length; i++) { out[i*2] = value.charCodeAt(i) & 255; out[i*2+1] = value.charCodeAt(i) >>> 8; }
+          return out;
+        }
+        if (format !== 'utf8') throw new TypeError('Unknown encoding: ' + encoding);
+        return new LXBuffer(new TextEncoder().encode(value));
+      }
+      if (value instanceof ArrayBuffer) return new LXBuffer(value, encoding || 0, length);
+      if (value && value.type === 'Buffer' && Array.isArray(value.data)) value = value.data;
+      if (value == null || typeof value === 'number') throw new TypeError('Expected bytes or string');
+      return new LXBuffer(value);
+    }
+    toString(encoding, start, end) {
+      const bytes = this.subarray(start == null ? 0 : Math.max(0, start), end == null ? this.length : Math.max(0, end));
+      const format = String(encoding || 'utf8').toLowerCase().replace('-', '');
+      if (format === 'hex') return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+      if (format === 'base64' || format === 'base64url') {
+        const text = toBase64(bytes);
+        return format === 'base64url' ? text.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : text;
+      }
+      if (format === 'latin1' || format === 'binary' || format === 'ascii') {
+        let text = ''; for (const b of bytes) text += String.fromCharCode(format === 'ascii' ? b & 127 : b); return text;
+      }
+      if (format === 'utf16le' || format === 'ucs2') {
+        let text = ''; for (let i=0; i+1<bytes.length; i+=2) text += String.fromCharCode(bytes[i] | bytes[i+1]<<8); return text;
+      }
+      if (format !== 'utf8') throw new TypeError('Unknown encoding: ' + encoding);
+      return new TextDecoder().decode(bytes);
+    }
+    slice(start, end) { return this.subarray(start, end); }
+    equals(other) { return this.length === other.length && this.every((b, i) => b === other[i]); }
+    toJSON() { return {type: 'Buffer', data: Array.from(this)}; }
+    readUInt8(offset) { return this._read(offset || 0, 1, false); }
+    readUInt16LE(offset) { return this._read(offset || 0, 2, true); }
+    readUInt16BE(offset) { return this._read(offset || 0, 2, false); }
+    readUInt32LE(offset) { return this._read(offset || 0, 4, true); }
+    readUInt32BE(offset) { return this._read(offset || 0, 4, false); }
+    _read(offset, size, little) {
+      if (!Number.isInteger(offset) || offset < 0 || offset + size > this.length) throw new RangeError('Offset outside buffer');
+      let n = 0; for (let i=0; i<size; i++) n = n*256 + this[offset + (little ? size-i-1 : i)]; return n;
+    }
+  }
+  function requestOptions(options) {
+    const normalized = Object.assign({}, options || {});
+    const bytes = value => value instanceof ArrayBuffer || ArrayBuffer.isView(value)
+      ? Array.from(byteView(value)) : value;
+    normalized.body = bytes(normalized.body);
+    if (normalized.formData && typeof normalized.formData === 'object') {
+      normalized.formData = Object.fromEntries(Object.entries(normalized.formData).map(([key, value]) => {
+        if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'buffer') && !ArrayBuffer.isView(value))
+          return [key, Object.assign({}, value, {buffer: bytes(value.buffer)})];
+        return [key, bytes(value)];
+      }));
+    }
+    return normalized;
+  }
   function nativeUtility(args) {
     let result = _global.__lx_utils__(args);
     if (typeof result === 'string') result = JSON.parse(result);
     if (!result || result.error) throw new Error(result && result.error || 'Utility bridge unavailable');
-    return Uint8Array.from(atob(result.value), c => c.charCodeAt(0));
+    return LXBuffer.from(result.value, 'base64');
   }
   _global.crypto.getRandomValues = function(arr) {
     if (!ArrayBuffer.isView(arr) || arr instanceof DataView ||
@@ -253,7 +330,7 @@
         sendToFlutter('lxRequest', {
           requestId: requestId,
           url: url,
-          options: options || {},
+          options: requestOptions(options),
         });
       });
     }
@@ -263,7 +340,7 @@
     sendToFlutter('lxRequest', {
       requestId: requestId,
       url: url,
-      options: options || {},
+      options: requestOptions(options),
     });
 
     // 返回取消函数
@@ -452,7 +529,7 @@
         return nativeUtility({operation: 'rsa', data: toBase64(buffer), key: key});
       },
       randomBytes: function(size) {
-        const bytes = new Uint8Array(size);
+        const bytes = new LXBuffer(size);
         crypto.getRandomValues(bytes);
         return bytes;
       },
@@ -465,31 +542,8 @@
       },
     },
     buffer: {
-      from: function(data, encoding, length) {
-        if (typeof data === 'string') {
-          if (encoding === 'hex') {
-            const hex = data.match(/^[0-9a-f]*/i)[0];
-            return Uint8Array.from((hex.match(/../g) || []), b => parseInt(b, 16));
-          }
-          if (encoding === 'base64') {
-            return Uint8Array.from(atob(data), c => c.charCodeAt(0));
-          }
-          return new TextEncoder().encode(data);
-        }
-        if (data instanceof ArrayBuffer) return new Uint8Array(data, encoding || 0, length);
-        return new Uint8Array(data);
-      },
-      bufToString: function(buf, format) {
-        if (format === 'hex') {
-          return Array.from(byteView(buf))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-        }
-        if (format === 'base64') {
-          return toBase64(buf);
-        }
-        return new TextDecoder().decode(buf);
-      },
+      from: function(...args) { return LXBuffer.from(...args); },
+      bufToString: function(buf, format) { return LXBuffer.from(buf, 'binary').toString(format); },
     },
     zlib: {
       inflate: function(buf) {
@@ -653,7 +707,16 @@
           ? data.body : (data.response && data.response.body);
         // Match LX: parsed JSON stays parsed; text stays text. Both callback
         // arguments expose the same value, including null/false/0/empty text.
-        if (data.response) data.response.body = body;
+        if (data.response) {
+          if (typeof data.response.rawBase64 === 'string') {
+            const encoded = data.response.rawBase64;
+            let raw;
+            Object.defineProperty(data.response, 'raw', {enumerable: true, configurable: true,
+              get: function() { return raw || (raw = LXBuffer.from(encoded, 'base64')); }});
+            delete data.response.rawBase64;
+          }
+          data.response.body = body;
+        }
         console.log('[LxMusic] Calling callback with success, body type: ' + typeof body);
         callback(null, data.response, body);
       } else {

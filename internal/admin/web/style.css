@@ -5,3 +5,5 @@
 textarea{font:inherit;width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}#publish-dialog{max-width:640px}#recommendation-panel{margin-bottom:22px}#publish-dialog label{display:block}
 
 .resource-evidence{font:12px/1.8 ui-monospace,monospace;overflow-wrap:anywhere;margin-top:6px}.result-card .warning{overflow-wrap:anywhere}
+
+.report-summary{margin:14px 0;padding:14px 16px;background:var(--bg);border:1px solid var(--line);border-radius:9px;overflow-wrap:anywhere}.report-summary p+p{margin-top:6px}

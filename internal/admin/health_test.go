@@ -60,8 +60,8 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 		{SampleID: "policy", Resolution: "failed", FailureOrigin: "probe"},
 		{SampleID: "permission", Resolution: "failed", FailureOrigin: "source", ProbeIssues: []string{"probe_policy: blocked"}},
 		{SampleID: "404", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unreachable"}},
-		{SampleID: "unknown", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unverified"}},
-		{SampleID: "m4a", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio"}},
+		{SampleID: "unknown", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "unverified", ReasonCode: "suspected_encrypted_resource"}},
+		{SampleID: "m4a", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio", DuplicateSampleIDs: []string{"other"}}},
 		{SampleID: "short", Resolution: "ok", Resource: sourcecheck.ResourceResult{Status: "recognized_audio", Assessment: "suspected_short_resource"}},
 		{SampleID: "canceled", Resolution: "canceled"},
 	}}
@@ -94,7 +94,7 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 		t.Fatalf("%+v", overview)
 	}
 	health := overview.Sources[0].Platforms["qq"]
-	if health == nil || health.Failed != 3 || health.Limited != 2 || health.Unverified != 1 || health.Recognized != 1 || health.Short != 1 || health.Canceled != 1 {
+	if health == nil || health.Failed != 3 || health.Limited != 2 || health.Unverified != 1 || health.Recognized != 1 || health.Short != 1 || health.Canceled != 1 || health.Duplicate != 1 || health.SuspectedEncrypted != 1 {
 		t.Fatalf("%+v", health)
 	}
 	if _, ok := overview.Sources[0].Platforms["netease"]; ok {

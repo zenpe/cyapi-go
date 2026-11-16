@@ -127,7 +127,10 @@ func (s *Store) Read(ctx context.Context, user int64, q library.Query) (library.
 			tracks := []map[string]any{}
 			for _, r := range rows {
 				t := r.Track.track()
-				v := map[string]any{"itemId": r.ItemID, "trackId": t.TrackID, "name": t.Name, "artists": t.Artists, "album": t.Album, "picUrl": t.PicURL, "source": t.Source, "addedAt": r.AddedAt}
+				v := map[string]any{"itemId": r.ItemID, "trackId": t.TrackID, "name": t.Name, "artists": t.Artists, "album": t.Album, "picUrl": t.PicURL, "source": t.Source, "addedAt": r.AddedAt, "durationMs": t.DurationMS}
+				if !t.LXMetadata.Empty() {
+					v["lxMetadata"] = t.LXMetadata
+				}
 				if len(t.SourceIDs) > 0 {
 					v["sourceIds"] = t.SourceIDs
 				}
@@ -141,7 +144,7 @@ func (s *Store) Read(ctx context.Context, user int64, q library.Query) (library.
 	return library.Result{}, library.Fail(400, "INVALID_REQUEST", "请求无效")
 }
 func (s *Store) AddFavorite(ctx context.Context, user int64, t library.Track) (library.Result, error) {
-	f := favorite{UserID: user, TrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, Source: t.Source, SourceIDsJSON: t.SourceJSON(), AddedAt: s.now().UTC().Format(stamp)}
+	f := favorite{UserID: user, TrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, Source: t.Source, SourceIDsJSON: t.SourceJSON(), DurationMS: t.DurationMS, AddedAt: s.now().UTC().Format(stamp)}
 	q := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&f)
 	if q.Error != nil {
 		return library.Result{}, q.Error
@@ -234,8 +237,8 @@ func bump(tx *gorm.DB, id int64, content, order bool, at string) error {
 	return tx.Model(&playlist{}).Where("id = ?", id).Updates(values).Error
 }
 func upsert(tx *gorm.DB, t library.Track, at string) (int64, error) {
-	c := catalog{Source: t.Source, SourceTrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, SourceIDsJSON: t.SourceJSON(), CreatedAt: at, UpdatedAt: at}
-	e := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source"}, {Name: "source_track_id"}}, DoUpdates: clause.Assignments(map[string]any{"name": t.Name, "artists": t.Artists, "album": t.Album, "pic_url": t.PicURL, "source_ids_json": gorm.Expr("COALESCE(excluded.source_ids_json, playlist_tracks_catalog.source_ids_json)"), "updated_at": at})}, clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&c).Error
+	c := catalog{Source: t.Source, SourceTrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, SourceIDsJSON: t.SourceJSON(), DurationMS: t.DurationMS, CreatedAt: at, UpdatedAt: at}
+	e := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source"}, {Name: "source_track_id"}}, DoUpdates: clause.Assignments(map[string]any{"name": t.Name, "artists": t.Artists, "album": t.Album, "pic_url": t.PicURL, "source_ids_json": mergeSourceMetadata(tx), "duration_ms": gorm.Expr("COALESCE(excluded.duration_ms, playlist_tracks_catalog.duration_ms)"), "updated_at": at})}, clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&c).Error
 	return c.ID, e
 }
 func (s *Store) mutate(tx *gorm.DB, user int64, c library.Command, at string) (library.Result, error) {

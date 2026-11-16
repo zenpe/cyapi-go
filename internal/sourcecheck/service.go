@@ -143,6 +143,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 	s, report, scripts, enabled, o := p.service, p.report, p.scripts, p.samples, p.options
 	var e error
 	index := 0
+	duplicates := newDuplicateResources(report.Samples)
 	for _, script := range scripts {
 		for _, sample := range enabled {
 			if ctx.Err() != nil {
@@ -154,6 +155,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 			j := Job{Format: ProtocolVersion, ID: fmt.Sprintf("%s-%d", report.RunID, index), ScriptPath: script.File.Path, ScriptSHA256: script.File.SHA256, Script: script.Content, Sample: sample, Quality: "128k"}
 			result := s.Runner.Run(ctx, j)
 			report.Results = append(report.Results, result)
+			duplicates.add(report.Results, len(report.Results)-1)
 			report.Completed++
 			if ctx.Err() != nil {
 				report.State = "canceled"
@@ -163,7 +165,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 				return report, e
 			}
 			if o.Progress != nil {
-				o.Progress(result, report.Completed, report.Planned)
+				o.Progress(report.Results[len(report.Results)-1], report.Completed, report.Planned)
 			}
 		}
 		if report.State != "running" {

@@ -239,10 +239,16 @@ func writeSnapshot(tx *gorm.DB, p playlist, remote library.RemoteSnapshot, at st
 	rows := make([]catalog, 0, len(keys))
 	for _, key := range keys {
 		t := unique[key]
-		rows = append(rows, catalog{Source: t.Source, SourceTrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, SourceIDsJSON: t.SourceJSON(), CreatedAt: at, UpdatedAt: at})
+		rows = append(rows, catalog{Source: t.Source, SourceTrackID: t.TrackID, Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, SourceIDsJSON: t.SourceJSON(), DurationMS: t.DurationMS, CreatedAt: at, UpdatedAt: at})
 	}
 	if len(rows) > 0 {
-		err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source"}, {Name: "source_track_id"}}, DoUpdates: clause.AssignmentColumns([]string{"name", "artists", "album", "pic_url", "updated_at"})}, clause.Returning{Columns: []clause.Column{{Name: "id"}}}).CreateInBatches(&rows, 100).Error
+		err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "source"}, {Name: "source_track_id"}}, DoUpdates: clause.Assignments(map[string]any{
+			"name": gorm.Expr("excluded.name"), "artists": gorm.Expr("excluded.artists"),
+			"album": gorm.Expr("excluded.album"), "pic_url": gorm.Expr("excluded.pic_url"),
+			"source_ids_json": mergeSourceMetadata(tx),
+			"updated_at":      gorm.Expr("excluded.updated_at"),
+			"duration_ms":     gorm.Expr("COALESCE(excluded.duration_ms, playlist_tracks_catalog.duration_ms)"),
+		})}, clause.Returning{Columns: []clause.Column{{Name: "id"}}}).CreateInBatches(&rows, 100).Error
 		if err != nil {
 			return err
 		}

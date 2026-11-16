@@ -13,15 +13,17 @@ import (
 )
 
 type PlatformHealth struct {
-	Recognized  int       `json:"recognized"`
-	Short       int       `json:"short"`
-	Failed      int       `json:"failed"`
-	Unverified  int       `json:"unverified"`
-	Unsupported int       `json:"unsupported"`
-	Canceled    int       `json:"canceled"`
-	Limited     int       `json:"limited"`
-	CheckedAt   time.Time `json:"checkedAt"`
-	ExpiresAt   time.Time `json:"expiresAt"`
+	SuspectedEncrypted int       `json:"suspectedEncrypted"`
+	Duplicate          int       `json:"duplicate"`
+	Recognized         int       `json:"recognized"`
+	Short              int       `json:"short"`
+	Failed             int       `json:"failed"`
+	Unverified         int       `json:"unverified"`
+	Unsupported        int       `json:"unsupported"`
+	Canceled           int       `json:"canceled"`
+	Limited            int       `json:"limited"`
+	CheckedAt          time.Time `json:"checkedAt"`
+	ExpiresAt          time.Time `json:"expiresAt"`
 }
 type Descriptor struct {
 	ReleaseID    string                     `json:"releaseId"`
@@ -72,6 +74,12 @@ func (s *Store) Describe(r Release) Descriptor {
 				h.CheckedAt = x.CheckedAt
 			}
 			h.ExpiresAt = h.CheckedAt.Add(24 * time.Hour)
+			if x.Resource.ReasonCode == "suspected_encrypted_resource" {
+				h.SuspectedEncrypted++
+			}
+			if len(x.Resource.DuplicateSampleIDs) > 0 {
+				h.Duplicate++
+			}
 			category := sourcecheck.ClassifyResult(x)
 			if category == sourcecheck.OutcomeFailed && sourcecheck.ProbeLimited(x) {
 				h.Limited++

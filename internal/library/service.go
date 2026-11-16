@@ -3,6 +3,7 @@ package library
 
 import (
 	"context"
+	"cyapi-go/internal/music"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -31,29 +32,53 @@ func Rejected(e *Failure) Result {
 }
 
 type Track struct {
-	TrackID   string            `json:"trackId"`
-	Name      string            `json:"name"`
-	Artists   string            `json:"artists"`
-	Album     string            `json:"album"`
-	PicURL    string            `json:"picUrl"`
-	Source    string            `json:"source"`
-	SourceIDs map[string]string `json:"sourceIds,omitempty"`
+	LXMetadata music.LXMetadata  `json:"lxMetadata,omitempty"`
+	DurationMS *int64            `json:"durationMs,omitempty"`
+	TrackID    string            `json:"trackId"`
+	Name       string            `json:"name"`
+	Artists    string            `json:"artists"`
+	Album      string            `json:"album"`
+	PicURL     string            `json:"picUrl"`
+	Source     string            `json:"source"`
+	SourceIDs  map[string]string `json:"sourceIds,omitempty"`
 }
 
 func (t Track) SourceJSON() *string {
-	if len(t.SourceIDs) == 0 {
+	m := map[string]any{}
+	for k, v := range t.SourceIDs {
+		m[k] = v
+	}
+	if !t.LXMetadata.Empty() {
+		m["lxMetadata"] = t.LXMetadata.Clean()
+	}
+	if len(m) == 0 {
 		return nil
 	}
-	b, _ := json.Marshal(t.SourceIDs)
+	b, _ := json.Marshal(m)
 	s := string(b)
 	return &s
 }
 func DecodeSource(s *string) map[string]string {
-	var m map[string]string
-	if s != nil {
-		_ = json.Unmarshal([]byte(*s), &m)
+	out := map[string]string{}
+	if s == nil {
+		return out
 	}
-	return m
+	var m map[string]any
+	_ = json.Unmarshal([]byte(*s), &m)
+	for k, v := range m {
+		if text, ok := v.(string); ok {
+			out[k] = text
+		}
+	}
+	return out
+}
+func DecodeLXMetadata(s *string) music.LXMetadata {
+	if s == nil {
+		return music.LXMetadata{}
+	}
+	var m map[string]any
+	_ = json.Unmarshal([]byte(*s), &m)
+	return music.ParseLXMetadata(m["lxMetadata"])
 }
 
 type Query struct {
@@ -110,6 +135,9 @@ type Service struct {
 func New(s Store) *Service  { return &Service{store: s} }
 func validID(id int64) bool { return id > 0 && id <= MaxID }
 func normalizeTrack(t Track) (Track, error) {
+	if t.DurationMS != nil && (*t.DurationMS <= 0 || *t.DurationMS > 86400000) {
+		return t, Fail(400, "INVALID_TRACK", "歌曲时长无效")
+	}
 	t.TrackID = strings.TrimSpace(t.TrackID)
 	t.Name = strings.TrimSpace(t.Name)
 	t.Source = strings.ToLower(strings.TrimSpace(t.Source))
@@ -135,6 +163,7 @@ func normalizeTrack(t Track) (Track, error) {
 		}
 	}
 	t.SourceIDs = ids
+	t.LXMetadata = t.LXMetadata.Clean()
 	return t, nil
 }
 func (s *Service) Read(ctx context.Context, user int64, q Query) (Result, error) {

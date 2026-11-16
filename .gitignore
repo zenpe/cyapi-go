@@ -24,3 +24,7 @@ coverage.out
 
 __pycache__/
 *.pyc
+
+# Local diagnostic workspace and private test configuration
+/.tmp/
+/config.local-*.yaml

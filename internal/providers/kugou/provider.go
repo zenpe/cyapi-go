@@ -79,7 +79,7 @@ func (c *Client) search(ctx context.Context, q map[string]string) (map[string]an
 		if p.Text(s["SongName"]) == "" || p.Text(s["FileHash"]) == "" {
 			return nil, music.BadUpstream()
 		}
-		songs = append(songs, map[string]any{"name": s["SongName"], "hash": s["FileHash"], "album": s["AlbumName"], "singer": s["SingerName"], "duration": s["Duration"], "album_id": s["AlbumID"], "album_audio_id": s["AlbumAudioID"], "emixsongid": s["EMixSongID"], "pic": strings.Replace(strings.Replace(p.Text(s["Image"]), "{size}", "400", -1), "http://", "https://", 1)})
+		songs = append(songs, map[string]any{"name": s["SongName"], "hash": s["FileHash"], "album": s["AlbumName"], "singer": s["SingerName"], "duration": s["Duration"], "durationMs": p.Int(s["Duration"]) * 1000, "lxMetadata": music.LXMetadata{AlbumID: p.Text(s["AlbumID"])}, "album_id": s["AlbumID"], "album_audio_id": s["AlbumAudioID"], "emixsongid": s["EMixSongID"], "pic": strings.Replace(strings.Replace(p.Text(s["Image"]), "{size}", "400", -1), "http://", "https://", 1)})
 		id := s["EMixSongID"]
 		if p.Text(id) == "" || p.Text(id) == "0" {
 			id = s["FileHash"]

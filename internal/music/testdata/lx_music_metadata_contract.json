@@ -1,0 +1,96 @@
+{
+  "provenance": "LX desktop 2.12.6, local HEAD 323e4bac, actual toOldMusicInfo executed in Node VM; synthetic platform metadata",
+  "rows": [
+    {
+      "source": "tx",
+      "id": "MID1",
+      "durationMs": 212000,
+      "lxMetadata": {
+        "songId": "12345",
+        "strMediaMid": "MEDIA1",
+        "albumId": "ALBUM1",
+        "albumMid": "ALBUM1",
+        "img": "https://example.test/cover.jpg",
+        "qualities": {
+          "128k": {
+            "size": "4.00 MiB",
+            "bytes": 4194304
+          },
+          "320k": {
+            "size": "10.00 MiB",
+            "bytes": 10485760
+          }
+        }
+      },
+      "expected": {
+        "name": "Song",
+        "singer": "Artist",
+        "source": "tx",
+        "songmid": "MID1",
+        "interval": "03:32",
+        "albumName": "Album",
+        "img": "https://example.test/cover.jpg",
+        "typeUrl": {},
+        "albumId": "ALBUM1",
+        "types": [
+          {
+            "type": "128k",
+            "size": "4.00 MiB"
+          },
+          {
+            "type": "320k",
+            "size": "10.00 MiB"
+          }
+        ],
+        "_types": {
+          "128k": {
+            "size": "4.00 MiB"
+          },
+          "320k": {
+            "size": "10.00 MiB"
+          }
+        },
+        "strMediaMid": "MEDIA1",
+        "albumMid": "ALBUM1",
+        "songId": 12345
+      }
+    },
+    {
+      "source": "wy",
+      "id": 123,
+      "durationMs": 212000,
+      "lxMetadata": {
+        "albumId": "99",
+        "img": "https://example.test/cover.jpg",
+        "qualities": {
+          "128k": {
+            "size": "4.00 MiB",
+            "bytes": 4194304
+          }
+        }
+      },
+      "expected": {
+        "name": "Song",
+        "singer": "Artist",
+        "source": "wy",
+        "songmid": 123,
+        "interval": "03:32",
+        "albumName": "Album",
+        "img": "https://example.test/cover.jpg",
+        "typeUrl": {},
+        "albumId": 99,
+        "types": [
+          {
+            "type": "128k",
+            "size": "4.00 MiB"
+          }
+        ],
+        "_types": {
+          "128k": {
+            "size": "4.00 MiB"
+          }
+        }
+      }
+    }
+  ]
+}

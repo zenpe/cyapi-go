@@ -1,0 +1,27 @@
+{
+  "intervals": [
+    {"durationMs": null, "interval": null},
+    {"durationMs": 0, "interval": null},
+    {"durationMs": -1, "interval": null},
+    {"durationMs": 999, "interval": null},
+    {"durationMs": 1000, "interval": "00:01"},
+    {"durationMs": 212000, "interval": "03:32"},
+    {"durationMs": 275912, "interval": "04:35"},
+    {"durationMs": 3600000, "interval": "60:00"},
+    {"durationMs": 86400001, "interval": null}
+  ],
+  "assessments": [
+    {"expectedMs": null, "observedMs": 7128, "result": "unknown"},
+    {"expectedMs": 212000, "observedMs": null, "result": "unknown"},
+    {"expectedMs": 212000, "observedMs": 0, "result": "unknown"},
+    {"expectedMs": 212000, "observedMs": 7128, "result": "suspected_short_resource"},
+    {"expectedMs": 212000, "observedMs": 60000, "result": "suspected_short_resource"},
+    {"expectedMs": 212000, "observedMs": 169600, "result": "no_short_duration_detected"},
+    {"expectedMs": 212000, "observedMs": 169599, "result": "suspected_short_resource"},
+    {"expectedMs": 20000, "observedMs": 5000, "result": "no_short_duration_detected"},
+    {"expectedMs": 20000, "observedMs": 4999, "result": "suspected_short_resource"},
+    {"expectedMs": 7128, "observedMs": 7128, "result": "no_short_duration_detected"},
+    {"expectedMs": 212000, "observedMs": 213000, "result": "no_short_duration_detected"},
+    {"expectedMs": 86400001, "observedMs": 7128, "result": "unknown"}
+  ]
+}

@@ -17,7 +17,14 @@ func (c *Client) FetchSnapshot(ctx context.Context, source, id string) (library.
 	}
 	s := library.RemoteSnapshot{Name: p.Name, ExpectedCount: p.ExpectedTrackCount, Complete: p.Complete, Tracks: make([]library.RemoteTrack, 0, len(p.Tracks))}
 	for _, t := range p.Tracks {
-		s.Tracks = append(s.Tracks, library.RemoteTrack{Track: library.Track{TrackID: strconv.FormatInt(t.ID, 10), Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, Source: source}, SourcePosition: t.SourcePosition})
+		s.Tracks = append(s.Tracks, library.RemoteTrack{Track: library.Track{TrackID: strconv.FormatInt(t.ID, 10), Name: t.Name, Artists: t.Artists, Album: t.Album, PicURL: t.PicURL, Source: source, LXMetadata: t.LXMetadata, DurationMS: durationPtr(t.DurationMS)}, SourcePosition: t.SourcePosition})
 	}
 	return s, nil
+}
+
+func durationPtr(ms int64) *int64 {
+	if !music.ValidDurationMS(ms) {
+		return nil
+	}
+	return &ms
 }

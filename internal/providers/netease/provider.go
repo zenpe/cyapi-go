@@ -17,10 +17,14 @@ type rawSong struct {
 	Name    string                  `json:"name"`
 	Artists []struct{ Name string } `json:"ar"`
 	Album   struct {
+		ID     int64 `json:"id"`
 		Name   string
 		PicURL string `json:"picUrl"`
 	} `json:"al"`
-	Duration int64 `json:"dt"`
+	Duration     int64 `json:"dt"`
+	L, H, SQ, HR *struct {
+		Size int64 `json:"size"`
+	}
 }
 
 func (s rawSong) track() (music.Track, error) {
@@ -31,7 +35,7 @@ func (s rawSong) track() (music.Track, error) {
 	for _, a := range s.Artists {
 		names = append(names, a.Name)
 	}
-	return music.Track{ID: s.ID, Name: s.Name, Artists: strings.Join(names, "/"), Album: s.Album.Name, PicURL: strings.Replace(s.Album.PicURL, "http://", "https://", 1)}, nil
+	return music.Track{LXMetadata: s.lxMetadata(), DurationMS: s.Duration, ID: s.ID, Name: s.Name, Artists: strings.Join(names, "/"), Album: s.Album.Name, PicURL: strings.Replace(s.Album.PicURL, "http://", "https://", 1)}, nil
 }
 func (c *Client) Search(ctx context.Context, keywords string, page, limit int) (music.SearchPage, error) {
 	var out struct {
@@ -317,7 +321,7 @@ func (c *Client) Song(ctx context.Context, id, level string) (music.Song, error)
 		return music.Song{}, e
 	}
 	lyrics := <-lyricsCh
-	result := music.Song{ID: track.ID, Name: track.Name, Pic: song.Album.PicURL, Artist: track.Artists, Album: track.Album, Level: levelName(address.level), Size: formatSize(address.size), URL: address.url, ExpiresAt: address.expiry}
+	result := music.Song{LXMetadata: track.LXMetadata, DurationMS: track.DurationMS, ID: track.ID, Name: track.Name, Pic: song.Album.PicURL, Artist: track.Artists, Album: track.Album, Level: levelName(address.level), Size: formatSize(address.size), URL: address.url, ExpiresAt: address.expiry}
 	if lyrics.err == nil {
 		result.Lyric = lyrics.lyric.Lyric
 		result.TLyric = lyrics.lyric.TLyric

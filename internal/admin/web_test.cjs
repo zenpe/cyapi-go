@@ -112,12 +112,12 @@ test('report expands evidence and distinguishes an unexecuted resource from an u
       result('failed', 'failed', { status: 'not_run' }, { outcome: 'failed', reason: 'QQ 无播放权限(104003)', probeIssues: ['probe_policy: resolved address 198.18.0.1'] }),
       result('unknown', 'ok', { status: 'unverified', bytes: 100, contentType: 'application/octet-stream' }, { outcome: 'unverified' }),
       result('missing', 'ok', { status: 'unreachable', httpStatus: 404 }, { outcome: 'failed' }),
-      result('aac', 'ok', { status: 'recognized_audio', format: 'm4a', codec: 'aac', durationMs: 217129, durationMethod: 'mp4_mdhd' }, { outcome: 'recognized_audio' }),
+      result('aac', 'ok', { status: 'recognized_audio', format: 'm4a', codec: 'aac', durationMs: 217129, durationMethod: 'mp4_mdhd', complete: true, sha256: 'b'.repeat(64) }, { outcome: 'recognized_audio' }),
     ],
   } };
   const f = fixture('', response);
   await f.api.showReport('report-1');
-  const cards = f.element('report-results').children;
+  const cards = f.element('report-results').children.filter(x => x.className === 'result-card');
   assert.equal(cards.length, 4);
   assert.ok(cards.every(card => card.open));
   assert.match(cards[0].textContent, /解析失败.*资源未执行/);
@@ -128,7 +128,38 @@ test('report expands evidence and distinguishes an unexecuted resource from an u
   assert.match(cards[2].textContent, /HTTP 404/);
   assert.match(cards[3].textContent, /M4A 音轨元数据/);
   assert.match(cards[3].textContent, /编码 aac/);
+  assert.match(cards[3].textContent, /完整资源 SHA256 b{64}/);
   response.report.probeVersion = 'goja-probe-v1';
   await f.api.showReport('report-1');
   assert.match(f.element('report-results').textContent, /旧版报告/);
+});
+
+test('resource warnings stay separate from outcomes and decoding claims', async () => {
+  const response = { currentProbeVersion: 'goja-probe-v5', report: {
+    probeVersion: 'goja-probe-v5', completed: 3, planned: 3, state: 'completed',
+    samples: [{id:'a',title:'Song A'},{id:'b',title:'Song B'},{id:'c',title:'Song C'}],
+    results: [
+      {sampleId:'a',scriptPath:'test.js',platform:'qq',initialization:'ok',resolution:'ok',outcome:'suspected_short_resource',resource:{status:'recognized_audio',assessment:'suspected_short_resource',duplicateSampleIds:['b'],durationMs:7128}},
+      {sampleId:'b',scriptPath:'test.js',platform:'qq',initialization:'ok',resolution:'ok',outcome:'suspected_short_resource',resource:{status:'recognized_audio',assessment:'suspected_short_resource',duplicateSampleIds:['a'],durationMs:7128}},
+      {sampleId:'c',scriptPath:'test.js',platform:'qq',initialization:'ok',resolution:'ok',outcome:'unverified',resource:{status:'unverified',reasonCode:'suspected_encrypted_resource',extension:'.mgg',headerHex:'7d35280165'}},
+    ],
+  }};
+  const f=fixture('',response);
+  await f.api.showReport('report-1');
+  const summary=f.element('report-results').children.find(x=>x.className==='report-summary');
+  assert.match(summary.textContent,/2 项结构可识别（其中 2 项疑似短音频）/);
+  assert.match(summary.textContent,/0 项失败，1 项资源未验证（其中 1 项疑似加密）/);
+  assert.match(summary.textContent,/2 项与其他歌曲样例返回相同完整文件/);
+  const cards=f.element('report-results').children.filter(x=>x.className==='result-card');
+  assert.match(cards[0].textContent,/与 Song B 返回相同完整文件/);
+  assert.match(cards[0].textContent,/格式：结构已识别 · 时长：疑似短音频 · 解码：未执行/);
+  assert.match(cards[2].textContent,/疑似加密资源/);
+  assert.match(cards[2].textContent,/资源后缀 .mgg · 文件头 7d35280165/);
+  assert.doesNotMatch(cards[2].textContent,/检测失败|已通过|解码成功/);
+  const health={Recognized:2,Short:0,Failed:0,Unverified:1,Duplicate:2,SuspectedEncrypted:1};
+  assert.match(f.api.healthCell(health,'test.js').textContent,/其中 2 项重复资源，需核对/);
+  assert.match(f.api.healthCell(health,'test.js').textContent,/未验证中 1 项疑似加密/);
+  await f.api.loadRecommendations();
+  f.api.openPublish({name:'test',sha256:'a'.repeat(64),platforms:{qq:health}});
+  assert.match(f.element('publish-health').textContent,/其中 2 项重复资源，需核对/);
 });

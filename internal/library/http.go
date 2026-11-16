@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"cyapi-go/internal/auth"
+	"cyapi-go/internal/music"
 	"encoding/json"
 	"errors"
 	"io"
@@ -101,7 +102,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request) (map[string]any, error) 
 			}
 			body[k] = v[0]
 		}
-		for _, k := range []string{"track", "tracks", "itemIds", "sourceIds"} {
+		for _, k := range []string{"track", "tracks", "itemIds", "sourceIds", "lxMetadata"} {
 			if raw, ok := body[k].(string); ok {
 				dec := json.NewDecoder(strings.NewReader(raw))
 				dec.UseNumber()
@@ -139,7 +140,18 @@ func trackFrom(body map[string]any) Track {
 			}
 		}
 	}
-	return Track{TrackID: text(body["trackId"]), Name: text(body["name"]), Artists: text(body["artists"]), Album: text(body["album"]), PicURL: text(body["picUrl"]), Source: text(body["source"]), SourceIDs: ids}
+	var duration *int64
+	if raw, ok := body["durationMs"].(json.Number); ok {
+		n, err := raw.Int64()
+		if err != nil {
+			n = -1
+		}
+		duration = &n
+	} else if body["durationMs"] != nil {
+		n := int64(-1)
+		duration = &n
+	}
+	return Track{LXMetadata: music.ParseLXMetadata(body["lxMetadata"]), DurationMS: duration, TrackID: text(body["trackId"]), Name: text(body["name"]), Artists: text(body["artists"]), Album: text(body["album"]), PicURL: text(body["picUrl"]), Source: text(body["source"]), SourceIDs: ids}
 }
 func (h *Handler) favorite(w http.ResponseWriter, r *http.Request) {
 	b, e := decodeBody(w, r)

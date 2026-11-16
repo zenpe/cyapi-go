@@ -9,6 +9,7 @@ CyreneMusic `artifacts/goja-source-probe`, 2026-11-13.
   see `LICENSE.flutter_js` for the upstream MIT license.
 
 Go implements the native bridge. These copies do not automatically track future
-client changes. Any bridge update must run the async/HTTP, encoding/crypto and
+client changes. The sandbox was synchronized for the Buffer/raw/multipart contract
+on 2026-11-16 (goja-probe-v4). Any bridge update must run the async/HTTP, encoding/crypto and
 cancellation contract tests and update `ProbeVersion`. Passing these contracts
 does not prove complete QuickJS/Goja equivalence.

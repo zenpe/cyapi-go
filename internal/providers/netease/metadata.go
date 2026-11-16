@@ -23,5 +23,5 @@ func (c *Client) SampleMetadata(ctx context.Context, id string) (music.Metadata,
 	if e != nil {
 		return music.Metadata{}, e
 	}
-	return music.Metadata{ID: id, Title: track.Name, Artist: track.Artists, Album: track.Album, DurationMS: song.Duration}, nil
+	return music.Metadata{ID: id, Title: track.Name, Artist: track.Artists, Album: track.Album, DurationMS: song.Duration, LXMetadata: track.LXMetadata}, nil
 }
