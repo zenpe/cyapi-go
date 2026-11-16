@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,20 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "_source-probe-memory-fixture" {
+		_, cleanup, err := isolateWorker(false)
+		if err != nil {
+			WorkerError(os.Stderr, err)
+			os.Exit(1)
+		}
+		defer cleanup()
+		memory := make([]byte, 768<<20)
+		for i := 0; i < len(memory); i += 4096 {
+			memory[i] = 1
+		}
+		runtime.KeepAlive(memory)
+		os.Exit(2)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "_source-probe-worker" {
 		allow := len(os.Args) > 2 && os.Args[2] == "--allow-unconfined-worker"
 		if e := WorkerMain(context.Background(), os.Stdin, os.Stdout, allow); e != nil {
@@ -29,6 +44,37 @@ func TestMain(m *testing.M) {
 type runnerFunc func(context.Context, Job) Result
 
 func (f runnerFunc) Run(c context.Context, j Job) Result { return f(c, j) }
+
+type unavailableRunner struct{ calls int }
+
+func (*unavailableRunner) Preflight(context.Context) error { return ErrEnvironment }
+func (r *unavailableRunner) Run(_ context.Context, j Job) Result {
+	r.calls++
+	return resultFor(j)
+}
+
+func TestEnvironmentFailureDoesNotCreatePerSourceResults(t *testing.T) {
+	manager, _ := sourceFixture(t)
+	runner := &unavailableRunner{}
+	dir := t.TempDir()
+	svc := &Service{Directory: dir, Sources: manager, Runner: runner}
+	if _, err := svc.Prepare(context.Background(), RunOptions{}); !errors.Is(err, ErrEnvironment) {
+		t.Fatalf("expected environment error, got %v", err)
+	}
+	if runner.calls != 0 {
+		t.Fatal("environment failure executed source jobs")
+	}
+	reports, err := svc.Reports(10)
+	if err != nil || len(reports) != 0 {
+		t.Fatalf("environment failure created misleading reports: %d %v", len(reports), err)
+	}
+	// Preflight failure must also release the task lock.
+	if release, err := acquire(dir); err != nil {
+		t.Fatal("task lock leaked after preflight failure", err)
+	} else {
+		release()
+	}
+}
 
 func sourceFixture(t *testing.T) (*sources.Manager, string) {
 	t.Helper()

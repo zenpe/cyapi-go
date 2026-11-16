@@ -98,6 +98,7 @@ jobs:
           mkdir -p dist
           CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=v0.0.4" -o dist/cyapi-current ./cmd/cyapi
           CGO_ENABLED=0 go test -c -o dist/cyapi-ops-test ./cmd/cyapi
+          CGO_ENABLED=0 go test -c -o dist/cyapi-sourcecheck-test ./internal/sourcecheck
           legacy_commit=be9900dab018e6ec7d618e2d09d1e71d6cebe16b
           git fetch --no-tags origin "$legacy_commit"
           git worktree add --detach /tmp/cyapi-legacy-source "$legacy_commit"
@@ -110,3 +111,15 @@ jobs:
           sudo python3 scripts/test_nas_install.py --binary "$PWD/dist/cyapi-current" --legacy "$PWD/dist/cyapi-legacy"
       - name: Exercise automatic GitHub upgrade with controlled release fixture
         run: sudo env NAS_UPGRADE_TEST_BINARY="$PWD/dist/cyapi-current" NAS_UPGRADE_TEST_LEGACY="$PWD/dist/cyapi-legacy" "$PWD/dist/cyapi-ops-test" -test.run '^TestAutomaticUpgradeSystemd$' -test.v -test.timeout=4m
+
+      - name: Verify delegated worker isolation, cancellation and kernel OOM
+        run: |
+          sudo install -d -m 0755 /var/lib/cyapi-cgroup-tests
+          sudo install -m 0755 dist/cyapi-sourcecheck-test /var/lib/cyapi-cgroup-tests/sourcecheck.test
+          sudo systemd-run --wait --pipe --collect \
+            --property=User=cyapi --property=Delegate=memory \
+            --property=NoNewPrivileges=true --property=ProtectSystem=strict \
+            --property=ProtectHome=read-only --property=PrivateTmp=true \
+            --setenv=CYAPI_DELEGATED_CGROUP_TEST=1 \
+            /var/lib/cyapi-cgroup-tests/sourcecheck.test \
+            -test.run '^TestDelegatedCgroupWorkerLifecycle$' -test.v -test.timeout=60s

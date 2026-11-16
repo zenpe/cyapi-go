@@ -96,6 +96,9 @@ func (h *Handler) failure(w http.ResponseWriter, e error) {
 	switch {
 	case errors.Is(e, sourcecheck.ErrBusy):
 		status, message = 409, "已有检测或文件操作正在进行，请稍后重试"
+	case errors.Is(e, sourcecheck.ErrEnvironment):
+		status, message = 503, "检测环境未就绪：Linux 服务需要 cgroup v2 内存委派，请更新服务配置后重启；本次未执行音源检测"
+		h.log.Error("source check environment unavailable", "error", e.Error())
 	case errors.Is(e, sourcerecommendation.ErrConflict):
 		status, message = 409, "推荐或音源版本已改变，请刷新后重试"
 	case errors.Is(e, sourcerecommendation.ErrInvalid):

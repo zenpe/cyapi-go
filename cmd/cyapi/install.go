@@ -404,7 +404,7 @@ func systemdQuote(s string) string {
 	return "\"" + s + "\""
 }
 func serviceUnit(i installation) string {
-	return "[Unit]\nDescription=Cyapi music API\nWants=network-online.target\nAfter=network-online.target\nStartLimitIntervalSec=60\nStartLimitBurst=3\n[Service]\nUser=" + i.User + "\nExecStart=" + systemdQuote(i.Binary) + " serve --config " + systemdQuote(i.Config) + " --log-file " + systemdQuote(filepath.Join(i.Root, "logs", "server.log")) + "\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=40\nUMask=0077\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=true\nReadWritePaths=" + systemdQuote(i.Root) + "\n[Install]\nWantedBy=multi-user.target\n"
+	return "[Unit]\nDescription=Cyapi music API\nWants=network-online.target\nAfter=network-online.target\nStartLimitIntervalSec=60\nStartLimitBurst=3\n[Service]\nUser=" + i.User + "\nExecStart=" + systemdQuote(i.Binary) + " serve --config " + systemdQuote(i.Config) + " --log-file " + systemdQuote(filepath.Join(i.Root, "logs", "server.log")) + "\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=40\nUMask=0077\nNoNewPrivileges=true\nDelegate=memory\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=true\nReadWritePaths=" + systemdQuote(i.Root) + "\n[Install]\nWantedBy=multi-user.target\n"
 }
 func registerService(i installation) error {
 	path := filepath.Join("/etc/systemd/system", i.Unit)

@@ -124,3 +124,7 @@ sudo ./cyapi upgrade
 自动查询最新稳定版、选择 amd64/arm64 二进制、下载和校验，然后复用备份、迁移、替换和健康验证流程。已是相同或更新版本时不下载、不停服；网络、GitHub 限额或校验失败时保持现有服务运行，显示重试或离线升级方式。下载有超时和体积上限，临时文件在失败后清理。可选的 GitHub token 复用 secrets.env 中 sources.github_token_env 指定的凭据，只发送给 GitHub API。
 
 v0.0.2/v0.0.3 还没有自动下载逻辑，需要最后手动上传一次新程序，通过 `sudo ./cyapi-new upgrade --file ./cyapi-new` 接管。升级到支持自动更新的版本后，日常直接运行 `sudo ./cyapi upgrade`。NAS 连不上 GitHub 时，仍可上传文件后使用 --file。
+
+## 音源检测服务权限
+
+原生 systemd 服务使用 Delegate=memory，为每个检测 worker 提供独立的 cgroup v2 内存硬限制。已有未配置委派的服务须使用新版程序执行一次离线升级，以更新服务单元，具体步骤见 [音源检测与管理](13-source-checks.md#已有-linux-安装启用检测)。已有账号、样例、推荐及配置由原升级流程保留。

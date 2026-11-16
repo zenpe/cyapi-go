@@ -7,6 +7,8 @@ import (
 	"unsafe"
 )
 
+func prepareWorkerParent(bool) error { return nil }
+
 func isolateWorker(allow bool) (string, func(), error) {
 	job, e := windows.CreateJobObject(nil, nil)
 	if e == nil {

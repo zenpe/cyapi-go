@@ -13,6 +13,7 @@ RestartSec=5
 TimeoutStopSec=35
 UMask=0077
 NoNewPrivileges=true
+Delegate=memory
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true

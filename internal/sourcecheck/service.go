@@ -97,6 +97,11 @@ func (s *Service) Prepare(ctx context.Context, o RunOptions) (*PreparedRun, erro
 	if len(enabled) == 0 {
 		return nil, fmt.Errorf("%w: no enabled samples for selected platform", ErrInvalid)
 	}
+	if preflight, ok := s.Runner.(interface{ Preflight(context.Context) error }); ok {
+		if e = preflight.Preflight(ctx); e != nil {
+			return nil, e
+		}
+	}
 	generation, scripts, e := s.Sources.ReadVerifiedScripts(ctx, o.Path, MaxScriptBytes, 64<<20)
 	if e != nil {
 		return nil, e

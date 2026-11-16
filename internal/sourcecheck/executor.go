@@ -17,6 +17,17 @@ type Executor struct {
 	Executable      string
 	AllowUnconfined bool
 }
+
+func (e Executor) Preflight(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := prepareWorkerParent(e.AllowUnconfined); err != nil {
+		return fmt.Errorf("%w: %v", ErrEnvironment, err)
+	}
+	return nil
+}
+
 type cappedWriter struct {
 	bytes.Buffer
 	limit    int
@@ -43,6 +54,9 @@ func (e Executor) Run(ctx context.Context, j Job) Result {
 		return r
 	}
 	if err := j.validate(); err != nil {
+		return fail(err)
+	}
+	if err := e.Preflight(ctx); err != nil {
 		return fail(err)
 	}
 	path := e.Executable

@@ -21,6 +21,7 @@ const TaskTimeout = 40 * time.Second
 
 var ErrBusy = errors.New("source check already running")
 var ErrLimit = errors.New("probe_limit")
+var ErrEnvironment = errors.New("source check environment unavailable")
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 
 type Sample struct {

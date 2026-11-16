@@ -64,7 +64,7 @@ MP3 需要连续有效帧结构；时长只取 Xing/Info/VBRI 信息，不根据
 - stdout/stderr 各限制 256 KiB，超限终止。脚本总快照最多 64 MiB、单份最多 8 MiB。
 - 只允许公网 HTTP(S)，每次连接校验并使用确定的公共地址；拒绝私网、环回、链路本地、基准测试网段等地址。重定向同样检查；不继承服务端 Cookie、Token 或代理。
 - 如果本机代理使用 198.18.0.0/15 等 fake-IP DNS，可能被正确拒绝并记录 probe_policy。应在真实 DNS/合适的检测出口运行，不把此类拒绝当成音源停服，不通过关闭目的地址校验解决。
-- Windows worker 使用 Job Object 的 512 MiB 进程内存限制；Linux 需要可写的委派 cgroup v2 memory controller。子进程隔离不等于完整 OS 安全沙箱。
+- Windows worker 使用 Job Object 的 512 MiB 进程内存限制；Linux 需要可写的委派 cgroup v2 memory controller；原生 systemd 安装单元配置 Delegate=memory，服务进程移入专用叶子组，worker 在同级叶子组设置 512 MiB 内存上限和零 swap。子进程隔离不等于完整 OS 安全沙箱。
 - Linux 未配置硬限制时默认执行失败。仅对管理员手动诊断提供 `--allow-unconfined-worker` 显式选项，报告标注 explicitly_unconfined；该选项不是生产自动运行的默认值。GOMEMLIMIT 只作为软限制。
 
 纯 Go，CGO_ENABLED=0。Linux 交叉构建成功不等于目标 NAS 已实测。正式自动检测开启前必须实测部署权限、内存上限、取消回收及对 API 的影响。
@@ -97,7 +97,7 @@ admin:
 - 关闭页面不取消任务。一次一个批次，与 CLI 共用跨进程锁；相同请求复用任务，其他请求返回忙碌。服务停止会取消子任务。
 - 列表只汇总脚本哈希、样例版本、检测器版本匹配的记录，超过 24 小时标注过期。结果是服务器网络环境下的证据，不是 Windows 客户端播放保证。
 - `/admin/source-checks/*` 复用账号认证并校验 admin.user_ids。管理接口不返回 CORS 跨域授权头；浏览器按实际访问 URL 执行同源限制。HTTPS 经多层 HTTP 反代时，登录不要求配置公网域名或代理信任；真实 IP 与下载链接的代理配置仍按既有规则处理。
-- 页面使用强隔离 worker，不提供 allow-unconfined-worker 开关。Linux 须配置 cgroup v2 委派，未满足时报告显示检测器限制。
+- 页面使用强隔离 worker，不提供 allow-unconfined-worker 开关。Linux 须配置 cgroup v2 委派；启动批次前验证实际创建 worker 内存限制的权限，未满足时直接提示环境未就绪，不生成整批“未验证”报告。
 
 当前不提供自动定时检测。管理员可根据报告主动发布推荐；客户端仅在主动选择推荐入口后接收后续版本，详见 [推荐音源](14-source-recommendations.md)。
 
@@ -110,3 +110,18 @@ admin:
 ## 本阶段验证边界
 
 Windows 全量 Go 测试通过。真实浏览器已验证登录、列表、样例启停、启动/取消、报告、退出，并检查桌面与手机布局。测试覆盖样例冲突、跨进程锁、请求取消隔离、运行中备份及恢复读取。歌曲详情解析契约使用本地上游响应验证。解除测试进程的沙箱网络限制后，真实管理 API 新增 QQ 000mkfVC48z4QV 返回 201、时长 212000ms，网易 2600493765 返回 201、时长 275912ms；随后删除均返回 200。Linux/NAS 仍须目标机器实测。
+
+## 已有 Linux 安装启用检测
+
+系统须使用 cgroup v2，且 `/sys/fs/cgroup/cgroup.controllers` 包含 memory。新版安装器与升级器生成 `Delegate=memory` 服务单元，并在创建 worker 前处理 cgroup 的空父组规则；无需给服务 root 权限。
+
+从尚未生成委派权限的旧版升级时，必须由**新版本程序执行升级**，以更新 systemd 单元。将对应架构的新程序放为安装目录中的 `cyapi-new`，在安装目录运行：
+
+```sh
+chmod +x ./cyapi-new
+sudo ./cyapi-new upgrade --config ./config.yaml --file ./cyapi-new
+```
+
+此操作沿用已有备份、迁移、程序替换和重启流程，保留账号和配置。只用旧版升级器替换二进制，无法补上新版生成的 systemd 权限。容器或非 systemd 安装仍须显式提供可写的 cgroup v2 委派；管理页面不静默退回无内存硬限制的执行模式。
+
+发布门禁使用非 root 的真实 systemd 服务验证 worker 脚本执行、取消回收、512 MiB 内存与零 swap 限制，以及真实内核 OOM 后父进程继续服务。安装与旧版迁移测试也通过管理 API 执行六项隔离 worker，避免仅以服务存活或编译成功视为检测功能可用。

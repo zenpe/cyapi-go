@@ -10,6 +10,7 @@ import socket
 import sqlite3
 import subprocess
 import tempfile
+import time
 import urllib.request
 
 
@@ -62,6 +63,68 @@ def verify(root, port):
     assert (root / "cyapi").stat().st_uid == 0
     run("runuser", "-u", "cyapi", "--", "test", "!", "-w", root / ".cyapi-install.json")
     run("runuser", "-u", "cyapi", "--", "test", "!", "-w", root)
+
+
+
+def verify_source_checks(root, port):
+    # Exercise the actual installed non-root API and its strict worker. No
+    # public API or third-party source is involved in this deployment contract.
+    base = f"http://127.0.0.1:{port}"
+    request = urllib.request.Request(base + "/auth/login",
+        data=json.dumps({"account": "smoke_user", "password": "InstallSmoke!123"}).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        account = json.load(response)["data"]
+    script = b"lx.send(lx.EVENT_NAMES.inited,{status:false,message:'installed-worker-ran'});"
+    generation = "g-20261113000000000000-0123456789abcdef"
+    sources = root / "data/sources"
+    directory = sources / "versions" / generation
+    (directory / "files").mkdir(parents=True, exist_ok=True)
+    (directory / "files/fixture.js").write_bytes(script)
+    (directory / ".read.lock").touch()
+    manifest = {"format": 1, "generation": generation, "repo": "guoyue2010/lxmusic-",
+        "ArchiveSHA256": hashlib.sha256(b"archive").hexdigest(),
+        "ConfigSHA256": hashlib.sha256(b"config").hexdigest(),
+        "files": [{"path": "fixture.js", "size": len(script), "sha256": hashlib.sha256(script).hexdigest()}]}
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    (sources / "current.json").write_text(json.dumps({"format": 1, "generation": generation}))
+    identity = pwd.getpwnam("cyapi")
+    for path in [sources, *sources.rglob("*")]:
+        os.chown(path, identity.pw_uid, identity.pw_gid)
+        path.chmod(0o700 if path.is_dir() else 0o600)
+    with (root / "config.yaml").open("a") as handle:
+        handle.write(f"admin:\n  enabled: true\n  user_ids: [{account['id']}]\n")
+    run("systemctl", "restart", unit(root))
+    for attempt in range(100):
+        try:
+            with urllib.request.urlopen(base + "/health/ready", timeout=2) as response:
+                assert response.status == 200
+            break
+        except Exception:
+            if attempt == 99:
+                raise
+            time.sleep(0.1)
+    request = urllib.request.Request(base + "/admin/source-checks/runs",
+        data=json.dumps({"path": "fixture.js"}).encode(),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + account["token"]})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        started = json.load(response)
+        assert response.status == 202, started
+    for attempt in range(100):
+        request = urllib.request.Request(base + "/admin/source-checks/runs/" + started["runId"],
+            headers={"Authorization": "Bearer " + account["token"]})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            report = json.load(response)["report"]
+        if report["state"] != "running":
+            break
+        time.sleep(0.1)
+    assert report["state"] == "completed" and report["completed"] == 6, report
+    for result in report["results"]:
+        assert result.get("isolation") == "cgroup_v2_512MiB", result
+        assert result.get("failureOrigin") == "source" and "installed-worker-ran" in result.get("reason", ""), result
+    with urllib.request.urlopen(base + "/health/ready", timeout=5) as response:
+        assert response.status == 200
+    print("Installed service executed six strictly isolated workers; API remains ready.")
 
 
 def main():
@@ -130,6 +193,7 @@ def main():
         assert (backup / "manifest.json").stat().st_uid == pwd.getpwnam("cyapi").pw_uid
         run(root / "cyapi", "upgrade", "--config", root / "config.yaml", "--file", args.binary)
         verify(root, new_port)
+        verify_source_checks(root, new_port)
 
         # Actual v0.0.2 installation, then new-binary adoption with account/key/port preserved.
         legacy = Path(tempfile.mkdtemp(dir="/var/lib", prefix="cyapi-legacy-")); roots.append(legacy)
@@ -145,6 +209,7 @@ def main():
         run(args.binary, "upgrade", "--config", legacy / "config.yaml", "--file", args.binary)
         assert (legacy / "secrets.env").read_bytes() == original_key
         verify(legacy, legacy_port)
+        verify_source_checks(legacy, legacy_port)
         with sqlite3.connect(legacy / "data/cyapi.db") as db:
             assert db.execute("select count(*) from users").fetchone()[0] == 1
         print("NAS installation, ACL, config edit, ownership and v0.0.2 upgrade checks passed.")
