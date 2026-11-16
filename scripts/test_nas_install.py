@@ -94,6 +94,9 @@ def verify_source_checks(root, port):
         path.chmod(0o700 if path.is_dir() else 0o600)
     with (root / "config.yaml").open("a") as handle:
         handle.write(f"admin:\n  enabled: true\n  user_ids: [{account['id']}]\n")
+    # This fixture deliberately restarts one unit repeatedly within seconds;
+    # reset its start counter without changing the production restart policy.
+    run("systemctl", "reset-failed", unit(root))
     run("systemctl", "restart", unit(root))
     for attempt in range(100):
         try:
@@ -213,6 +216,10 @@ def main():
         with sqlite3.connect(legacy / "data/cyapi.db") as db:
             assert db.execute("select count(*) from users").fetchone()[0] == 1
         print("NAS installation, ACL, config edit, ownership and v0.0.2 upgrade checks passed.")
+    except Exception:
+        for root in roots:
+            subprocess.run(["journalctl", "-u", unit(root), "--no-pager", "-n", "30"], check=False)
+        raise
     finally:
         for root in roots:
             subprocess.run(["systemctl", "disable", "--now", unit(root)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
