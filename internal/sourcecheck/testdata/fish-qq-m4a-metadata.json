@@ -1,0 +1,9 @@
+{
+  "scriptSha256": "a711e152c4f28c32fd46b38839a70f476e0b669905773a90e2ce63246136af47",
+  "trackId": "002X3Bu82FiBhb",
+  "capturedAt": "2026-11-13",
+  "originalCapturedPrefixSha256": "c2356b84ec36a52d9e387a35a83bfabd49c9559ab5109c278dd01e1f0a22ab39",
+  "expectedCodec": "aac",
+  "libmpvDurationSeconds": 217.129796,
+  "fixtureNote": "Original ftyp, audio mdhd/hdlr/stsd metadata retained; media payload replaced with zero bytes. This fixture checks metadata recognition, not decoding."
+}

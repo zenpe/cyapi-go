@@ -48,7 +48,7 @@ func publicDial(ctx context.Context, network, address string) (net.Conn, error) 
 	}
 	for _, ip := range ips {
 		if !publicIP(ip) {
-			return nil, errors.New("probe_policy: non-public destination")
+			return nil, fmt.Errorf("probe_policy: non-public destination (resolved address %s, category %s)", ip, addressCategory(ip))
 		}
 	}
 	var last error
@@ -60,6 +60,22 @@ func publicDial(ctx context.Context, network, address string) (net.Conn, error) 
 		last = e
 	}
 	return nil, last
+}
+
+func addressCategory(ip netip.Addr) string {
+	ip = ip.Unmap()
+	switch {
+	case netip.MustParsePrefix("198.18.0.0/15").Contains(ip):
+		return "benchmark_or_fake_ip"
+	case ip.IsLoopback():
+		return "loopback"
+	case ip.IsPrivate():
+		return "private"
+	case ip.IsLinkLocalUnicast():
+		return "link_local"
+	default:
+		return "reserved_or_non_public"
+	}
 }
 
 type budgetTransport struct {

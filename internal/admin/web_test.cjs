@@ -5,24 +5,30 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function fixture(initialRelease) {
+function fixture(initialRelease, reportResponse) {
   const elements = new Map(), requests = [];
+  const makeElement = () => ({
+    value: '', listeners: {}, children: [], classList: { toggle() {} },
+    set textContent(value) { this.text = String(value); this.children = []; },
+    get textContent() { return (this.text || '') + this.children.map(child => child.textContent).join(''); },
+    addEventListener(type, handler) { this.listeners[type] = handler; },
+    showModal() { this.open = true; }, close() { this.open = false; },
+    querySelector() { return { disabled: false }; },
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.text = ''; this.children = children; },
+  });
   const element = id => {
-    if (!elements.has(id)) elements.set(id, {
-      value: '', listeners: {}, classList: { toggle() {} },
-      addEventListener(type, handler) { this.listeners[type] = handler; },
-      showModal() { this.open = true; }, close() { this.open = false; },
-      querySelector() { return { disabled: false }; }, replaceChildren() {},
-    });
+    if (!elements.has(id)) elements.set(id, makeElement());
     return elements.get(id);
   };
   const state = id => ({ current: { releaseId: id, originalName: id, scriptSha256: 'a'.repeat(64) }, history: [], enabled: true });
   let current = state(initialRelease);
   const context = {
-    document: { getElementById: element, addEventListener() {}, hidden: false },
+    document: { getElementById: element, createElement: makeElement, addEventListener() {}, hidden: false },
     location: { pathname: '/admin/source-management' },
     setTimeout() { return 1; }, clearTimeout() {}, AbortController,
-    fetch: async (_, options) => {
+    fetch: async (url, options) => {
+      if (url.includes('/source-checks/runs/')) return { ok: true, json: async () => reportResponse };
       if (options.method !== 'POST') return { ok: true, json: async () => current };
       const body = JSON.parse(options.body);
       requests.push(body);
@@ -37,7 +43,7 @@ function fixture(initialRelease) {
   // Expose closure entry points only in this VM; production exports stay unchanged.
   const script = fs.readFileSync(path.join(__dirname, 'web/app.js'), 'utf8').replace(
     /\}\)\(\);\s*$/,
-    'globalThis.review = {openPublish,loadRecommendations};})();',
+    'globalThis.review = {openPublish,loadRecommendations,healthCell,showReport};})();',
   );
   vm.runInContext(script, context);
   return {
@@ -85,4 +91,44 @@ test('first publication preserves the empty expected version', async () => {
   await f.submit();
   assert.equal(f.requests[0].expectedReleaseId, '');
   assert.equal(f.currentRelease(), 'published-target');
+});
+
+test('failed attempts and probe limitations remain visible in overview and publication', async () => {
+  const f = fixture('release-A');
+  const health = { Failed: 3, Limited: 2, Recognized: 0, Short: 0, Unverified: 0, Unsupported: 0 };
+  const cell = f.api.healthCell(health, 'test.js');
+  assert.match(cell.textContent, /3 失败/);
+  assert.match(cell.textContent, /失败中 2 项涉及检测限制/);
+  assert.doesNotMatch(cell.textContent, /未验证/);
+  await f.api.loadRecommendations();
+  f.api.openPublish({ name: 'test', sha256: 'a'.repeat(64), platforms: { qq: health } });
+  assert.match(f.element('publish-health').textContent, /3 失败（其中 2 项涉及检测限制）/);
+});
+
+test('report expands evidence and distinguishes an unexecuted resource from an unknown format', async () => {
+  const result = (id, resolution, resource, more = {}) => ({ sampleId: id, scriptPath: 'test.js', platform: 'qq', initialization: 'ok', resolution, resource, ...more });
+  const response = { currentProbeVersion: 'goja-probe-v2', report: {
+    probeVersion: 'goja-probe-v2', completed: 4, planned: 4, state: 'completed', samples: [], results: [
+      result('failed', 'failed', { status: 'not_run' }, { outcome: 'failed', reason: 'QQ 无播放权限(104003)', probeIssues: ['probe_policy: resolved address 198.18.0.1'] }),
+      result('unknown', 'ok', { status: 'unverified', bytes: 100, contentType: 'application/octet-stream' }, { outcome: 'unverified' }),
+      result('missing', 'ok', { status: 'unreachable', httpStatus: 404 }, { outcome: 'failed' }),
+      result('aac', 'ok', { status: 'recognized_audio', format: 'm4a', codec: 'aac', durationMs: 217129, durationMethod: 'mp4_mdhd' }, { outcome: 'recognized_audio' }),
+    ],
+  } };
+  const f = fixture('', response);
+  await f.api.showReport('report-1');
+  const cards = f.element('report-results').children;
+  assert.equal(cards.length, 4);
+  assert.ok(cards.every(card => card.open));
+  assert.match(cards[0].textContent, /解析失败.*资源未执行/);
+  assert.match(cards[0].textContent, /198\.18\.0\.1/);
+  assert.match(cards[0].textContent, /104003/);
+  assert.doesNotMatch(cards[0].textContent, /资源未验证/);
+  assert.match(cards[1].textContent, /资源未验证/);
+  assert.match(cards[2].textContent, /HTTP 404/);
+  assert.match(cards[3].textContent, /M4A 音轨元数据/);
+  assert.match(cards[3].textContent, /编码 aac/);
+  response.report.probeVersion = 'goja-probe-v1';
+  await f.api.showReport('report-1');
+  assert.match(f.element('report-results').textContent, /旧版报告/);
 });

@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
+	github.com/abema/go-mp4 v1.7.4
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/text v0.43.0

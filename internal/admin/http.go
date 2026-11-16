@@ -343,7 +343,7 @@ func (h *Handler) report(w http.ResponseWriter, r *http.Request) {
 		h.failure(w, e)
 		return
 	}
-	reply(w, 200, map[string]any{"report": report})
+	reply(w, 200, map[string]any{"report": report, "currentProbeVersion": sourcecheck.ProbeVersion})
 }
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	if e := h.controller.Cancel(r.PathValue("id")); e != nil {
@@ -354,10 +354,10 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 type platformHealth struct {
-	Recognized, Short, Failed, Unverified, Unsupported int
-	CheckedAt                                          time.Time
-	RunID                                              string
-	Stale                                              bool
+	Recognized, Short, Failed, Unverified, Unsupported, Canceled, Limited int
+	CheckedAt                                                             time.Time
+	RunID                                                                 string
+	Stale                                                                 bool
 }
 type sourceRow struct {
 	Generation string                     `json:"generation"`
@@ -422,16 +422,20 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 				health.CheckedAt = x.CheckedAt
 			}
 			health.Stale = time.Since(health.CheckedAt) > 24*time.Hour
-			switch {
-			case x.Initialization == "unsupported":
+			category := sourcecheck.ClassifyResult(x)
+			if category == sourcecheck.OutcomeFailed && sourcecheck.ProbeLimited(x) {
+				health.Limited++
+			}
+			switch category {
+			case sourcecheck.OutcomeUnsupported:
 				health.Unsupported++
-			case x.FailureOrigin == "probe" || x.FailureOrigin == "sample":
-				health.Unverified++
-			case x.Resource.Assessment == "suspected_short_resource":
+			case sourcecheck.OutcomeCanceled:
+				health.Canceled++
+			case sourcecheck.OutcomeShort:
 				health.Short++
-			case x.Resource.Status == "recognized_audio":
+			case sourcecheck.OutcomeRecognized:
 				health.Recognized++
-			case x.Resolution == "ok" && x.Resource.Status == "unverified":
+			case sourcecheck.OutcomeUnverified:
 				health.Unverified++
 			default:
 				health.Failed++

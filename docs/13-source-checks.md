@@ -45,14 +45,21 @@ cyapi sources check --config config.yaml --samples ./my-samples.json
 | --- | --- |
 | initialization | 脚本初始化状态或平台/音质不支持 |
 | resolution | 地址解析成功、失败、超时或取消 |
-| resource.status | recognized_audio / invalid / unreachable / unverified |
+| outcome | failed / unverified / recognized_audio / suspected_short_resource / unsupported / canceled；本次检测结论 |
+| failureStage | sample / probe / initialization / resolution / resource；失败发生在哪一步 |
+| resource.status | not_run / recognized_audio / invalid / unreachable / unverified |
 | resource.durationMs | 能可靠读取时才提供，否则缺省 |
+| resource.durationMethod | 时长来自哪种结构；不是下载或解码时长 |
 | resource.assessment | unknown / suspected_short_resource / no_short_duration_detected |
 | failureOrigin | source / probe / sample / resource；不把执行环境限制归咎于音源 |
+| probeIssues | 本次执行遇到的检测策略或预算限制，与脚本最终错误分别保留 |
+| resource | 原始/最终域名、HTTP 状态、类型、Content-Range、响应长度、实际读取字节、格式特征、编码及判定代码；不保存完整播放地址 |
 | http | 仅域名、方法、状态和脱敏业务错误等有限诊断 |
 | isolation | 实际使用的 worker 内存限制，或显式未隔离标识 |
 
-MP3 需要连续有效帧结构；时长只取 Xing/Info/VBRI 信息，不根据局部码率猜完整时长。FLAC 读取 STREAMINFO。其他格式暂为 unverified；返回 HTML/JSON 错误页为 invalid。recognized_audio 仅表示可识别结构，不是播放器解码通过或歌曲内容正确的证明。
+初始化、解析或资源访问失败均计为失败；仅在已取得地址、资源检查未能确认格式时计为资源未验证。解析失败时资源状态为 not_run（资源未执行）。检测限制不会覆盖脚本最终错误：例如备用请求被策略拒绝、随后 QQ 返回无播放权限，保留两条证据，汇总为失败并注明涉及检测限制。失败计数表示本次尝试失败，不代表该音源在所有网络和客户端永久不可用。列表和推荐健康信息共用同一分类规则；“涉及检测限制”是失败的子集，不额外累加。
+
+MP3 需要连续有效帧结构；时长只取 Xing/Info/VBRI 信息，不根据局部码率猜完整时长。FLAC 读取 STREAMINFO。M4A/MP4 使用纯 Go 的 go-mp4 库，检查音轨标记、mp4a 描述及媒体数据，并从音轨 mdhd 读取时长；支持这条路径中的 AAC 标记。遍历不展开媒体、封面或采样表，并限制元数据数量、深度和大小。只有 ftyp、只有视频轨、元数据在读取窗口外等情况保留为 unverified，不从扩展名或 Content-Type 推断成功。其他未支持格式仍为 unverified；返回 HTML/JSON 错误页为 invalid。recognized_audio 仅表示可识别结构，不是播放器解码通过或歌曲内容正确的证明。无须安装 ffmpeg、Node 或额外服务。
 
 有可靠预期和实际时长时，实际不足预期 80% 且短了超过 15 秒，标记疑似短资源。播放地址不写入报告，资源验证在取得地址的同一 worker 立即执行，不依赖日志中的签名链接。
 
@@ -76,6 +83,7 @@ MP3 需要连续有效帧结构；时长只取 Xing/Info/VBRI 信息，不根据
 ```sh
 go test ./internal/sourcecheck ./internal/sources ./cmd/cyapi
 go test ./...
+node --test internal/admin/web_test.cjs # 仅开发/CI 使用，不是服务部署依赖
 ```
 
 测试包含真实 worker 子进程协议、HTTP/Promise/取消、加密契约、任务锁与中断报告、快照哈希校验、样例身份检查、音频错误页/短资源识别，以及网络目的地址和输出边界。不依赖公共音源持续在线。
@@ -93,6 +101,7 @@ admin:
 默认关闭，不自动授权首个账号。账号 ID 可由登录响应 data.id 或登录后 GET /auth/validate-token 的 data.id 获取。浏览器打开 `/admin/source-management`，使用现有账号密码登录；无须额外前端构建或 Node 服务。令牌保存在当前标签页的 sessionStorage，按服务路径区分；刷新页面时向后端验证登录及管理权限后恢复，不保存密码。退出登录、令牌失效或管理权限撤销时清除保存的令牌；临时网络错误保留会话供刷新重试。关闭标签页通常结束会话，浏览器恢复标签页时可能恢复 sessionStorage，最终有效性仍由后端验证。浏览器禁用存储时仍可登录，但刷新后需重新登录。对外访问沿用已有 HTTPS 反向代理。
 
 - **音源与推荐**：搜索脚本，选择 QQ、网易或两者，检测单个或全部；查看进度、取消和逐首报告。平台结果时间可打开对应批次，历史报告保留样例快照。
+- 详情逐项默认展开，显示阶段耗时、资源响应和时长依据，可手动折叠。无法读取可靠时长时明确保留“未核实”。
 - **测试歌曲**：选择平台、输入歌曲 ID，自动获取标题、歌手、专辑及详情时长；可启停、刷新详情、删除。上游获取失败不会修改样例。并发修改提示冲突并刷新数据。
 - 关闭页面不取消任务。一次一个批次，与 CLI 共用跨进程锁；相同请求复用任务，其他请求返回忙碌。服务停止会取消子任务。
 - 列表只汇总脚本哈希、样例版本、检测器版本匹配的记录，超过 24 小时标注过期。结果是服务器网络环境下的证据，不是 Windows 客户端播放保证。
@@ -100,6 +109,14 @@ admin:
 - 页面使用强隔离 worker，不提供 allow-unconfined-worker 开关。Linux 须配置 cgroup v2 委派；启动批次前验证实际创建 worker 内存限制的权限，未满足时直接提示环境未就绪，不生成整批“未验证”报告。
 
 当前不提供自动定时检测。管理员可根据报告主动发布推荐；客户端仅在主动选择推荐入口后接收后续版本，详见 [推荐音源](14-source-recommendations.md)。
+
+### v2 检测器升级
+
+检测器版本为 `goja-probe-v2`。升级保留旧报告原始证据，查看时提示版本差异；旧版数据不参与新版列表和推荐健康汇总，需要重新检测。不会用新规则悄悄改写旧报告。
+
+回归样本包括 fish QQ 历史响应中的 M4A/AAC 元数据（音轨时长 217129ms，独立 libmpv 读取为约 217.129796 秒）。测试夹具只保留容器元数据，替换了媒体内容，不能用于证明解码成功；另以本地保存的完整采样前缀核对识别结果。未识别的 HYW 历史数据仍为未验证，不强行改为成功。本机新取得的约 60 秒 MP3 能标为疑似短资源；这不证明用户此前 Time Machine 响应也是同一格式或同一故障。
+
+分类回归覆盖解析失败加策略拒绝、HTTP 404、未知格式、短资源、取消，以及列表/推荐计数一致性和历史版本隔离。真实浏览器使用受控 API 响应检查报告默认展开、资源证据和桌面/手机布局。以上不替代 NAS 网络出口和 Windows 实际播放验证。
 
 ## 备份与恢复检测数据
 

@@ -2,6 +2,7 @@ package sourcecheck
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,17 @@ func fixtureJob(t *testing.T, body string) Job {
 		t.Fatal(e)
 	}
 	return Job{Format: 1, ID: "test", ScriptPath: "fixture.js", Script: []byte(body), ScriptSHA256: digest([]byte(body)), Sample: set.Samples[0], Quality: "128k"}
+}
+
+func TestBlockedFallbackDoesNotOverwriteFinalScriptError(t *testing.T) {
+	client := &http.Client{Transport: testRoundTrip(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("probe_policy: non-public destination (resolved address 198.18.0.1, category benchmark_or_fake_ip)")
+	})}
+	script := `lx.on(lx.EVENT_NAMES.request,async()=>{try{await lx.request('https://blocked.example',{json:true});}catch(e){}throw Error('QQ 无播放权限(104003)');});lx.send(lx.EVENT_NAMES.inited,{status:true,sources:{tx:{qualitys:['128k']}}});`
+	r := executeJob(context.Background(), fixtureJob(t, script), client)
+	if r.Outcome != OutcomeFailed || r.FailureStage != "resolution" || r.FailureOrigin != "source" || !strings.Contains(r.Reason, "104003") || strings.Contains(r.Reason, "probe_policy") || len(r.ProbeIssues) != 1 || r.Resource.Status != "not_run" {
+		t.Fatalf("%+v", r)
+	}
 }
 func TestJobEvidenceAndUnsupportedQuality(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(flacFixture(60)) }))

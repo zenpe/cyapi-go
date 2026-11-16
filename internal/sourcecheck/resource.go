@@ -6,8 +6,10 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,31 +36,43 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 	if e != nil {
 		out.Status = "unreachable"
 		out.Reason = safe(e)
+		out.ReasonCode = "resource_request_failed"
 		return
 	}
 	defer resp.Body.Close()
 	out.HTTPStatus = resp.StatusCode
+	if resp.Request != nil && resp.Request.URL != nil {
+		out.FinalHost = resp.Request.URL.Hostname()
+	}
+	out.ContentType, _, _ = mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	out.ContentRange = safe(resp.Header.Get("Content-Range"))
+	out.ContentLength = resp.ContentLength
 	if resp.StatusCode != 200 && resp.StatusCode != 206 {
 		out.Status = "unreachable"
-		out.Reason = "audio HTTP " + http.StatusText(resp.StatusCode)
+		out.ReasonCode = "resource_http_error"
+		out.Reason = "音频资源返回 HTTP " + strconv.Itoa(resp.StatusCode) + " " + http.StatusText(resp.StatusCode)
 		return
 	}
 	if resp.StatusCode == 206 && !strings.HasPrefix(resp.Header.Get("Content-Range"), "bytes 0-") {
 		out.Reason = "unexpected partial content offset"
+		out.ReasonCode = "unexpected_content_range"
 		return
 	}
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" && enc != "identity" {
 		out.Reason = "unsupported audio content encoding"
+		out.ReasonCode = "unsupported_content_encoding"
 		return
 	}
 	data, e := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 	out.Bytes = len(data)
+	out.ReadLimit = len(data) == maxBytes
 	if e == nil {
 		e = accountDecoded(client, len(data))
 	}
 	if e != nil {
 		out.Status = "unreachable"
 		out.Reason = safe(e)
+		out.ReasonCode = "resource_read_failed"
 		return
 	}
 	identifyAudio(data, &out)
@@ -77,12 +91,19 @@ func identifyAudio(data []byte, out *ResourceResult) {
 	if len(data) == 0 {
 		out.Status = "invalid"
 		out.Reason = "empty resource"
+		out.ReasonCode = "empty_resource"
 		return
 	}
 	trimmed := bytes.TrimSpace(data)
 	if bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<!doctype html")) || bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<html")) || json.Valid(trimmed) {
 		out.Status = "invalid"
 		out.Reason = "resource is a text error response, not audio"
+		out.Signature = "text_response"
+		out.ReasonCode = "non_audio_response"
+		return
+	}
+	if len(data) >= 16 && string(data[4:8]) == "ftyp" {
+		identifyMP4(data, out)
 		return
 	}
 	if len(data) >= 42 && string(data[:4]) == "fLaC" && data[4]&127 == 0 && data[5] == 0 && data[6] == 0 && data[7] == 34 {
@@ -92,6 +113,8 @@ func identifyAudio(data []byte, out *ResourceResult) {
 		if rate > 0 && samples > 0 {
 			out.Status = "recognized_audio"
 			out.Format = "flac"
+			out.Codec = "flac"
+			out.Signature = "flac_streaminfo"
 			ms := samples * 1000 / rate
 			out.DurationMS = &ms
 			out.DurationMethod = "flac_streaminfo"
@@ -122,6 +145,8 @@ func identifyAudio(data []byte, out *ResourceResult) {
 		}
 		out.Status = "recognized_audio"
 		out.Format = "mp3"
+		out.Codec = "mp3"
+		out.Signature = "consecutive_mpeg_audio_frames"
 		xing := off + 4 + side
 		if data[off+1]&1 == 0 {
 			xing += 2
@@ -144,7 +169,9 @@ func identifyAudio(data []byte, out *ResourceResult) {
 		}
 		return
 	}
-	out.Reason = "format or duration evidence not supported within read budget"
+	out.Signature = "unknown"
+	out.ReasonCode = "unsupported_or_unknown_format"
+	out.Reason = "本次读取的数据未匹配已支持的音频结构；尚不能确认资源格式"
 }
 
 // MPEG layer III only. Require a second valid frame before calling it audio.

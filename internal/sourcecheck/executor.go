@@ -51,6 +51,10 @@ func (e Executor) Run(ctx context.Context, j Job) Result {
 		r.FailureOrigin = "probe"
 		r.Reason = safe(err)
 		r.ElapsedMS = time.Since(start).Milliseconds()
+		if errors.Is(err, context.Canceled) {
+			r.Outcome = OutcomeCanceled
+		}
+		finalizeResult(&r)
 		return r
 	}
 	if err := j.validate(); err != nil {

@@ -14,7 +14,7 @@ import (
 )
 
 const ProtocolVersion = 1
-const ProbeVersion = "goja-probe-v1"
+const ProbeVersion = "goja-probe-v2"
 const MaxScriptBytes = 8 << 20
 const MaxJobBytes = 12 << 20
 const TaskTimeout = 40 * time.Second
@@ -116,13 +116,21 @@ func (j Job) validate() error {
 type ResourceResult struct {
 	Status         string `json:"status"`
 	Host           string `json:"host,omitempty"`
+	FinalHost      string `json:"finalHost,omitempty"`
 	HTTPStatus     int    `json:"httpStatus,omitempty"`
+	ContentType    string `json:"contentType,omitempty"`
+	ContentRange   string `json:"contentRange,omitempty"`
+	ContentLength  int64  `json:"contentLength,omitempty"`
+	Signature      string `json:"signature,omitempty"`
+	ReadLimit      bool   `json:"readLimit,omitempty"`
+	Codec          string `json:"codec,omitempty"`
 	Bytes          int    `json:"bytes"`
 	Format         string `json:"format,omitempty"`
 	DurationMS     *int64 `json:"durationMs,omitempty"`
 	DurationMethod string `json:"durationMethod,omitempty"`
 	Assessment     string `json:"assessment"`
 	Reason         string `json:"reason,omitempty"`
+	ReasonCode     string `json:"reasonCode,omitempty"`
 	ElapsedMS      int64  `json:"elapsedMs"`
 }
 type Result struct {
@@ -138,6 +146,9 @@ type Result struct {
 	Initialization string           `json:"initialization"`
 	Resolution     string           `json:"resolution"`
 	Resource       ResourceResult   `json:"resource"`
+	Outcome        string           `json:"outcome,omitempty"`
+	FailureStage   string           `json:"failureStage,omitempty"`
+	ProbeIssues    []string         `json:"probeIssues,omitempty"`
 	FailureOrigin  string           `json:"failureOrigin,omitempty"`
 	Reason         string           `json:"reason,omitempty"`
 	LoadMS         int64            `json:"loadMs"`
@@ -148,7 +159,7 @@ type Result struct {
 }
 
 func resultFor(j Job) Result {
-	return Result{Format: ProtocolVersion, JobID: j.ID, ScriptPath: j.ScriptPath, ScriptSHA256: j.ScriptSHA256, SampleID: j.Sample.ID, Platform: j.Sample.Platform, Quality: j.Quality, ProbeVersion: ProbeVersion, CheckedAt: time.Now().UTC(), Initialization: "not_run", Resolution: "not_run", Resource: ResourceResult{Status: "unverified", Assessment: "unknown"}}
+	return Result{Format: ProtocolVersion, JobID: j.ID, ScriptPath: j.ScriptPath, ScriptSHA256: j.ScriptSHA256, SampleID: j.Sample.ID, Platform: j.Sample.Platform, Quality: j.Quality, ProbeVersion: ProbeVersion, CheckedAt: time.Now().UTC(), Initialization: "not_run", Resolution: "not_run", Resource: ResourceResult{Status: "not_run", Assessment: "unknown"}}
 }
 func digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 func decodeLimited(r io.Reader, v any, limit int64) error {

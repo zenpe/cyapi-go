@@ -36,6 +36,12 @@ func WorkerMain(ctx context.Context, input io.Reader, output io.Writer, allowUnc
 }
 func executeJob(ctx context.Context, j Job, client *http.Client) (r Result) {
 	r = resultFor(j)
+	defer func() {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			r.Outcome = OutcomeCanceled
+		}
+		finalizeResult(&r)
+	}()
 	started := time.Now()
 	defer func() {
 		r.ElapsedMS = time.Since(started).Milliseconds()
@@ -63,14 +69,12 @@ func executeJob(ctx context.Context, j Job, client *http.Client) (r Result) {
 	defer s.close()
 	defer func() {
 		r.HTTP = s.events
-		if r.Resolution != "ok" {
-			for _, event := range s.events {
-				msg := str(event["error"])
-				if strings.Contains(msg, "probe_policy") || strings.Contains(msg, "probe_limit") {
-					r.FailureOrigin = "probe"
-					r.Reason = safe(msg) + "; script: " + r.Reason
-					break
-				}
+		seen := map[string]bool{}
+		for _, event := range s.events {
+			msg := str(event["error"])
+			if (strings.Contains(msg, "probe_policy") || strings.Contains(msg, "probe_limit")) && !seen[msg] {
+				r.ProbeIssues = append(r.ProbeIssues, safe(msg))
+				seen[msg] = true
 			}
 		}
 	}()
@@ -79,6 +83,7 @@ func executeJob(ctx context.Context, j Job, client *http.Client) (r Result) {
 		r.FailureOrigin = origin
 		if errors.Is(e, context.Canceled) {
 			r.FailureOrigin = "probe"
+			r.Outcome = OutcomeCanceled
 		}
 		if strings.Contains(r.Reason, "probe_limit") || strings.Contains(r.Reason, "probe_policy") || strings.Contains(r.Reason, "JS execution budget") {
 			r.FailureOrigin = "probe"

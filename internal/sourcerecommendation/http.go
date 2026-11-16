@@ -18,6 +18,8 @@ type PlatformHealth struct {
 	Failed      int       `json:"failed"`
 	Unverified  int       `json:"unverified"`
 	Unsupported int       `json:"unsupported"`
+	Canceled    int       `json:"canceled"`
+	Limited     int       `json:"limited"`
 	CheckedAt   time.Time `json:"checkedAt"`
 	ExpiresAt   time.Time `json:"expiresAt"`
 }
@@ -70,16 +72,20 @@ func (s *Store) Describe(r Release) Descriptor {
 				h.CheckedAt = x.CheckedAt
 			}
 			h.ExpiresAt = h.CheckedAt.Add(24 * time.Hour)
-			switch {
-			case x.Initialization == "unsupported":
+			category := sourcecheck.ClassifyResult(x)
+			if category == sourcecheck.OutcomeFailed && sourcecheck.ProbeLimited(x) {
+				h.Limited++
+			}
+			switch category {
+			case sourcecheck.OutcomeUnsupported:
 				h.Unsupported++
-			case x.FailureOrigin == "probe" || x.FailureOrigin == "sample":
-				h.Unverified++
-			case x.Resource.Assessment == "suspected_short_resource":
+			case sourcecheck.OutcomeCanceled:
+				h.Canceled++
+			case sourcecheck.OutcomeShort:
 				h.Short++
-			case x.Resource.Status == "recognized_audio":
+			case sourcecheck.OutcomeRecognized:
 				h.Recognized++
-			case x.Resolution == "ok" && x.Resource.Status == "unverified":
+			case sourcecheck.OutcomeUnverified:
 				h.Unverified++
 			default:
 				h.Failed++

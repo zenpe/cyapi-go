@@ -25,6 +25,9 @@ func TestPublicAddresses(t *testing.T) {
 	if e == nil || !strings.Contains(e.Error(), "non-public") {
 		t.Fatal(e)
 	}
+	if !strings.Contains(e.Error(), "127.0.0.1") || !strings.Contains(e.Error(), "loopback") {
+		t.Fatalf("missing policy evidence: %v", e)
+	}
 	_, e = c.Get("file:///etc/passwd")
 	if e == nil {
 		t.Fatal("accepted file URL")

@@ -72,6 +72,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go mod verify
+      - name: Admin UI regression tests
+        run: node --test internal/admin/web_test.cjs
       - run: go vet ./...
       - run: go test -race ./... -count=1 -timeout=10m
       - name: Pure Go Linux builds
