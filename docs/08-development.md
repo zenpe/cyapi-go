@@ -26,7 +26,7 @@ go run ./cmd/cyapi serve --config config.yaml
 
 `auth.secret_env` 指向密钥环境变量；migrate/schema-status/version 不读取此密钥。mail 配置已用于 Brevo 验证码邮件；sources 已用于本地音源分发与 Release ZIP 同步，cache 已用于音乐响应缓存，providers 已接入网易云；QQ/酷狗配置为后续模块预留。
 
-应用只从可信直连代理接受单一 X-Real-IP，忽略未信任来源及伪造 X-Forwarded-For/CF-Connecting-IP。入口必须覆盖 X-Real-IP，trusted_proxies 使用实际直接连接地址的 CIDR。CORS 只允许精确配置的 HTTP(S) origin，默认不允许跨域网页请求；无 Origin 的原生客户端不受此配置限制。
+应用只从可信直连代理接受单一 X-Real-IP，忽略未信任来源及伪造 X-Forwarded-For/CF-Connecting-IP。入口必须覆盖 X-Real-IP，trusted_proxies 使用实际直接连接地址的 CIDR。CORS 仅向精确配置的 HTTP(S) origin 返回跨域授权头，管理接口始终不授予跨域访问。其他请求继续进入路由和账号鉴权，由浏览器执行同源限制；不通过比较 Origin 与后端 HTTP 地址拦截同站请求。Bearer 令牌须显式携带，Cookie 不用于认证。跨域预检不进入业务处理；无 Origin 的原生客户端沿用相同账号权限。
 
 PostgreSQL 设置 driver=postgres、dsn_env=CYAPI_PG_DSN；使用专用空数据库/专用 schema。SQLite 使用普通本地文件路径，不接受 file: URI、:memory: 或用户附加 PRAGMA。
 

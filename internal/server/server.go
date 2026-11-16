@@ -131,19 +131,23 @@ func NewHandler(c config.Server, db Readiness, log *slog.Logger, register ...fun
 		}
 		// Vary applies also to requests without Origin, preventing cache mixing.
 		rec.Header().Add("Vary", "Origin")
-		if origin := r.Header.Get("Origin"); origin != "" {
-			sameOrigin := origin == RequestOrigin(r)
-			if !sameOrigin && (!origins[origin] || strings.HasPrefix(r.URL.Path, "/admin/")) {
-				respond(rec, 403, map[string]any{"status": 403, "message": "Origin not allowed"})
-				return
-			}
+		// Browsers enforce same-origin access using the public URL, which can
+		// differ from our HTTP hop behind a TLS-terminating proxy. Only grant
+		// cross-origin access to explicitly configured origins. Admin APIs never
+		// grant it; their handlers still require Bearer authentication and an
+		// authorized account, including for requests without an Origin header.
+		allowCORS := false
+		if origin := r.Header.Get("Origin"); origin != "" && origins[origin] && !strings.HasPrefix(r.URL.Path, "/admin/") {
+			allowCORS = true
 			rec.Header().Set("Access-Control-Allow-Origin", origin)
 			rec.Header().Set("Access-Control-Allow-Credentials", "true")
 			rec.Header().Set("Access-Control-Expose-Headers", "X-Trace-ID, Retry-After")
 		}
 		if r.Method == http.MethodOptions {
-			rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			rec.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Cache-Control")
+			if allowCORS {
+				rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				rec.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Cache-Control")
+			}
 			rec.WriteHeader(http.StatusNoContent)
 			return
 		}

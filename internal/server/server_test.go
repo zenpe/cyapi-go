@@ -69,8 +69,8 @@ func TestCORSAndMissingRoutes(t *testing.T) {
 	r.Header.Set("Origin", "https://evil.example")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != 403 {
-		t.Fatal("origin accepted")
+	if w.Code != 200 || w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatal("unconfigured origin must not receive cross-origin access")
 	}
 	for _, p := range []string{"/auth/login", "/bili/proxy", "/douyin"} {
 		w = httptest.NewRecorder()
@@ -94,22 +94,53 @@ func TestDeferredQRLoginNotAvailable(t *testing.T) {
 	}
 }
 
-func TestAdminSameOriginIsolation(t *testing.T) {
+func TestAdminDoesNotGrantCrossOriginAccess(t *testing.T) {
 	h := NewHandler(config.Server{CORSAllowedOrigins: []string{"https://app.example"}}, readiness{}, slog.Default(), func(m *http.ServeMux) {
 		m.HandleFunc("POST /admin/test", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
 	})
 	for _, tc := range []struct {
 		origin string
-		want   int
-	}{{"http://example.com", 204}, {"https://app.example", 403}, {"https://evil.example", 403}} {
+	}{{"http://example.com"}, {"https://app.example"}, {"https://evil.example"}} {
 		r := httptest.NewRequest("POST", "http://example.com/admin/test", nil)
 		r.Header.Set("Origin", tc.origin)
 		r.Header.Set("X-Forwarded-Host", "evil.example")
 		r.RemoteAddr = "198.51.100.1:1234"
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
-		if w.Code != tc.want {
-			t.Fatalf("%s: %d", tc.origin, w.Code)
+		if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != "" || w.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Fatalf("admin CORS grant for %s: %d %v", tc.origin, w.Code, w.Header())
 		}
+	}
+}
+
+func TestUnconfiguredAndAdminPreflightsDoNotReachHandlers(t *testing.T) {
+	for _, tc := range []struct {
+		path, origin string
+	}{
+		{"/auth/login", "https://evil.example"},
+		{"/auth/login", "null"},
+		{"/admin/test", "https://app.example"},
+		{"/admin/test", "https://evil.example"},
+	} {
+		t.Run(tc.path+"/"+tc.origin, func(t *testing.T) {
+			called := false
+			h := NewHandler(config.Server{CORSAllowedOrigins: []string{"https://app.example"}}, readiness{}, slog.Default(), func(m *http.ServeMux) {
+				m.HandleFunc(tc.path, func(w http.ResponseWriter, r *http.Request) { called = true })
+			})
+			r := httptest.NewRequest(http.MethodOptions, "http://localhost:8080"+tc.path, nil)
+			r.Header.Set("Origin", tc.origin)
+			r.Header.Set("Access-Control-Request-Method", "POST")
+			r.Header.Set("Access-Control-Request-Headers", "Authorization, Content-Type")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 204 || called {
+				t.Fatalf("preflight reached handler: %d %v", w.Code, called)
+			}
+			for key := range w.Header() {
+				if strings.HasPrefix(key, "Access-Control-") {
+					t.Fatalf("denied preflight received CORS header %s", key)
+				}
+			}
+		})
 	}
 }
