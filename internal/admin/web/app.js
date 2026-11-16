@@ -2,6 +2,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const base = location.pathname.replace(/\/admin\/source-management\/?$/, '');
+  const sessionKey = `cyapi.admin.token:${base || '/'}`;
   let recommendationState=null,publishTarget=null;
   let token = '', samples = [], sampleVersion = '', overview = null, timer = null, selectedReport = '', selectedPath = '', generation = 0, busy = false, polling = false;
   const platformName = p => p === 'qq' ? 'QQ 音乐' : '网易云';
@@ -11,14 +12,18 @@
   function node(tag, text, cls) { const e=document.createElement(tag); if(text!=null)e.textContent=text;if(cls)e.className=cls;return e; }
   function button(text, action, cls='quiet') {const e=node('button',text,cls);e.type='button';e.addEventListener('click',action);return e;}
   function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('is-error',error);$('notice').hidden=!text;}
-  function logout(){generation++;token='';overview=null;clearTimeout(timer);$('workspace').hidden=true;$('identity').hidden=true;$('login-panel').hidden=false;if($('report-dialog').open)$('report-dialog').close();$('password').value='';recommendationState=null;if($('publish-dialog').open)$('publish-dialog').close();}
+  function savedToken(){try{return sessionStorage.getItem(sessionKey)||'';}catch{return '';}}
+  function saveToken(){try{if(token)sessionStorage.setItem(sessionKey,token);else sessionStorage.removeItem(sessionKey);}catch{}}
+  function logout(){generation++;token='';saveToken();overview=null;clearTimeout(timer);$('workspace').hidden=true;$('identity').hidden=true;$('login-panel').hidden=false;if($('report-dialog').open)$('report-dialog').close();$('password').value='';recommendationState=null;if($('publish-dialog').open)$('publish-dialog').close();}
+  async function openSession(username){await loadSamples();saveToken();$('username').textContent=username;$('identity').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;$('password').value='';await refresh();}
+  async function restoreSession(){token=savedToken();if(!token)return;const submit=$('login-form').querySelector('button');submit.disabled=true;const label=submit.textContent;submit.textContent='正在恢复登录…';try{const data=await api('/auth/validate-token');await openSession(data.data.username);}catch(e){token='';$('login-error').textContent=e.status===401?'登录已过期，请重新登录':e.status===403?'当前账号没有管理权限':`恢复登录失败：${e.message}。可刷新重试或重新登录`;}finally{submit.disabled=false;submit.textContent=label;}}
   async function api(path,options={}) {
     const current=generation, headers={'Accept':'application/json',...options.headers};if(token)headers.Authorization=`Bearer ${token}`;if(options.body)headers['Content-Type']='application/json';
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),25000);
     let response;try{response=await fetch(base+path,{...options,headers,cache:'no-store',credentials:'omit',signal:controller.signal});}finally{clearTimeout(timeout);}
     let data;try{data=await response.json();}catch{throw Error('服务器返回了无法识别的响应');}
     if(current!==generation)throw Error('会话已改变');
-    if(!response.ok){if(response.status===401&&token){logout();$('login-error').textContent='登录已过期，请重新登录';}const error=Error(data.message||`请求失败（${response.status}）`);error.status=response.status;throw error;}
+    if(!response.ok){if((response.status===401||response.status===403)&&token){logout();$('login-error').textContent=response.status===401?'登录已过期，请重新登录':'当前账号没有管理权限';}const error=Error(data.message||`请求失败（${response.status}）`);error.status=response.status;throw error;}
     return data;
   }
   async function action(work){if(busy)return;busy=true;try{await work();}catch(e){notice(e.message,true);if(e.status===409){try{await loadSamples();}catch{}}}finally{busy=false;renderSources();}}
@@ -55,7 +60,7 @@
         if(result.reason)card.append(node('pre',result.reason));card.append(node('p',`脚本 ${result.scriptSha256} · 检测器 ${result.probeVersion}`,'subtext'));for(const req of result.http||[]){card.append(node('div',`${req.method||''} ${req.host||''} · HTTP ${req.status??'—'} · ${req.elapsedMs} ms${req.businessMessage?' · '+req.businessMessage:''}${req.error?' · '+req.error:''}`,'http-line'));}$('report-results').append(card);}
       if(!report.results.length)$('report-results').append(node('p','任务正在准备，稍后刷新查看结果。','muted'));
     }catch(e){$('report-results').replaceChildren(node('p',e.message,'error'));}}
-  $('login-form').addEventListener('submit',async event=>{event.preventDefault();const submit=event.currentTarget.querySelector('button');submit.disabled=true;$('login-error').textContent='';try{const data=await api('/auth/login',{method:'POST',body:JSON.stringify({account:$('account').value.trim(),password:$('password').value})});token=data.data.token;await loadSamples();$('username').textContent=data.data.username;$('identity').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;$('password').value='';await refresh();}catch(e){token='';$('login-error').textContent=e.message;}finally{submit.disabled=false;}});
+  $('login-form').addEventListener('submit',async event=>{event.preventDefault();const submit=event.currentTarget.querySelector('button');submit.disabled=true;$('login-error').textContent='';try{const data=await api('/auth/login',{method:'POST',body:JSON.stringify({account:$('account').value.trim(),password:$('password').value})});token=data.data.token;await openSession(data.data.username);}catch(e){logout();$('login-error').textContent=e.message;}finally{submit.disabled=false;}});
   $('sample-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{const submit=$('sample-form').querySelector('button');submit.disabled=true;submit.textContent='正在获取详情…';try{const data=await api('/admin/source-checks/samples',{method:'POST',body:JSON.stringify({platform:$('sample-platform').value,trackId:$('track-id').value.trim(),expectedVersion:sampleVersion})});samples=data.samples;sampleVersion=data.version;$('track-id').value='';renderSamples();notice('已添加测试歌曲');await refresh();}finally{submit.disabled=false;submit.textContent='获取详情并添加';}});});
   $('sample-platform').addEventListener('change',()=>{$('track-id').placeholder=$('sample-platform').value==='qq'?'例如 002X3Bu82FiBhb':'例如 186016';});
   $('logout').addEventListener('click',logout);$('refresh').addEventListener('click',()=>action(async()=>{await loadSamples();await refresh();notice('状态已刷新');}));$('search').addEventListener('input',renderSources);$('check-all').addEventListener('click',()=>start());
@@ -64,4 +69,5 @@
   function tab(name){for(const item of ['sources','samples']){const selected=item===name;$('tab-'+item).setAttribute('aria-selected',String(selected));$('tab-'+item).tabIndex=selected?0:-1;$(item+'-panel').hidden=!selected;}}
   for(const name of ['sources','samples']){$('tab-'+name).addEventListener('click',()=>tab(name));$('tab-'+name).addEventListener('keydown',event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();const other=name==='sources'?'samples':'sources';tab(other);$('tab-'+other).focus();}});}
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token)refresh();});
+  restoreSession();
 })();
