@@ -1,0 +1,8 @@
+# Optional override; measure the NAS first. No default hard limit is imposed.
+# docker compose -f compose.yaml -f compose.memory.example.yaml up -d
+# This DOES NOT configure cgroup delegation needed by isolated source workers.
+services:
+  cyapi:
+    environment:
+      GOMEMLIMIT: "${CYAPI_MAIN_GOMEMLIMIT:?set the measured main Go memory budget}"
+    mem_limit: "${CYAPI_CONTAINER_MEMORY_MAX:?set a measured budget including the 512MiB worker}"

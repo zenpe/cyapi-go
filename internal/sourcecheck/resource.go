@@ -70,19 +70,17 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 		out.ReasonCode = "unsupported_content_encoding"
 		return
 	}
-	data, e := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	data, stop, e := readResource(resp.Body, func(n int) error { return accountDecoded(client, n) }, out.ContentType)
 	out.Bytes = len(data)
-	out.ReadLimit = len(data) == maxBytes
-	if e == nil {
-		e = accountDecoded(client, len(data))
-	}
+	out.ReadStop = stop
+	out.ReadLimit = stop == "read_limit"
 	if e != nil {
 		out.Status = "unreachable"
 		out.Reason = safe(e)
 		out.ReasonCode = "resource_read_failed"
 		return
 	}
-	out.Complete = completeAudioResponse(resp, len(data), out.ReadLimit)
+	out.Complete = stop == "eof" && completeAudioResponse(resp, len(data), out.ReadLimit)
 	if len(data) > 0 {
 		out.HeaderHex = hex.EncodeToString(data[:min(len(data), 16)])
 	}
@@ -103,6 +101,40 @@ func checkResource(ctx context.Context, client *http.Client, raw string, expecte
 	return
 }
 
+// One response, one global cap. Successful audio keeps the full evidence path:
+// hashes, complete MP3 frames and Ogg/MP4 tail metadata must not be skipped.
+func readResource(body io.Reader, account func(int) error, contentType string) ([]byte, string, error) {
+	var data bytes.Buffer
+	chunk := make([]byte, 64<<10)
+	for data.Len() < maxBytes {
+		n, err := io.ReadFull(body, chunk[:min(len(chunk), maxBytes-data.Len())])
+		data.Write(chunk[:n])
+		if budgetErr := account(n); budgetErr != nil {
+			return data.Bytes(), "read_error", budgetErr
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return data.Bytes(), "eof", nil
+		}
+		if err != nil {
+			return data.Bytes(), "read_error", err
+		}
+		if nonAudioPrefix(data.Bytes(), contentType) {
+			return data.Bytes(), "non_audio_response", nil
+		}
+	}
+	return data.Bytes(), "read_limit", nil
+}
+
+func htmlPrefix(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	prefix := bytes.ToLower(trimmed[:min(len(trimmed), 14)])
+	return bytes.HasPrefix(prefix, []byte("<!doctype html")) || bytes.HasPrefix(prefix, []byte("<html"))
+}
+
+func nonAudioPrefix(data []byte, contentType string) bool {
+	return htmlPrefix(data) || ((contentType == "application/json" || strings.HasSuffix(contentType, "+json")) && json.Valid(bytes.TrimSpace(data)))
+}
+
 // Recognizing structure is deliberately weaker than decoding or verifying the song.
 func identifyAudio(data []byte, out *ResourceResult) {
 	if len(data) == 0 {
@@ -112,7 +144,7 @@ func identifyAudio(data []byte, out *ResourceResult) {
 		return
 	}
 	trimmed := bytes.TrimSpace(data)
-	if bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<!doctype html")) || bytes.HasPrefix(bytes.ToLower(trimmed), []byte("<html")) || json.Valid(trimmed) {
+	if htmlPrefix(trimmed) || json.Valid(trimmed) {
 		out.Status = "invalid"
 		out.Reason = "resource is a text error response, not audio"
 		out.Signature = "text_response"

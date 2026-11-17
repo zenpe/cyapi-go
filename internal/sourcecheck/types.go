@@ -14,7 +14,7 @@ import (
 )
 
 const ProtocolVersion = 1
-const ProbeVersion = "goja-probe-v5"
+const ProbeVersion = "goja-probe-v6"
 const MaxScriptBytes = 8 << 20
 const MaxJobBytes = 12 << 20
 const TaskTimeout = 40 * time.Second
@@ -128,6 +128,7 @@ type ResourceResult struct {
 	ContentLength      int64    `json:"contentLength,omitempty"`
 	Signature          string   `json:"signature,omitempty"`
 	ReadLimit          bool     `json:"readLimit,omitempty"`
+	ReadStop           string   `json:"readStop,omitempty"`
 	Codec              string   `json:"codec,omitempty"`
 	Bytes              int      `json:"bytes"`
 	Format             string   `json:"format,omitempty"`

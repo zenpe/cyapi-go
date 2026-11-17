@@ -51,6 +51,8 @@ type AutomaticRuntime struct {
 	RetryAt            time.Time                  `json:"retryAt"`
 	Failures           int                        `json:"failures"`
 	LastError          string                     `json:"lastError"`
+	ActiveReused       bool                       `json:"activeReused,omitempty"`
+	ForceFresh         map[string]bool            `json:"forceFresh,omitempty"`
 	ActiveRunID        string                     `json:"activeRunId"`
 	ActivePlatform     string                     `json:"activePlatform"`
 	ActiveItems        []scanItem                 `json:"activeItems,omitempty"`
@@ -89,6 +91,12 @@ func (a *Automatic) runtime() (AutomaticRuntime, error) {
 	}
 	if r.Platforms == nil {
 		r.Platforms = map[string]*PlatformStatus{}
+	}
+	if r.ForceFresh == nil {
+		r.ForceFresh = map[string]bool{}
+		if r.RequestedID != "" {
+			r.ForceFresh["qq"], r.ForceFresh["netease"] = true, true
+		}
 	}
 	if r.Done == nil {
 		r.Done = map[string]bool{}
@@ -222,6 +230,9 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		if r.Platforms[platform].TargetSHA256 != target.SHA256 {
 			r.dropPlatform(platform)
 			r.Platforms[platform] = &PlatformStatus{TargetSHA256: target.SHA256, Health: "unavailable", DecisionReason: "awaiting_check", NextCheck: now}
+			if target.SHA256 != "" {
+				r.ForceFresh[platform] = true
+			}
 			if target.SHA256 == "" {
 				delete(r.Done, "platform:"+platform)
 				r.FullDue = now
@@ -237,6 +248,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	if r.ControlRevision != st.ControlRevision {
 		r.ControlRevision = st.ControlRevision
 		r.RequestedID = ""
+		r.ForceFresh = map[string]bool{}
 		r.ClientCheckPending = false
 		for _, p := range r.Platforms {
 			p.Confirmation = nil
@@ -267,9 +279,11 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		if report.State == "running" {
 			return nil
 		}
-		r.CompletedTasks += int64(report.Completed)
-		for _, result := range report.Results {
-			r.ResourceBytes += int64(result.Resource.Bytes)
+		if !r.ActiveReused {
+			r.CompletedTasks += int64(report.Completed)
+			for _, result := range report.Results {
+				r.ResourceBytes += int64(result.Resource.Bytes)
+			}
 		}
 		if report.State == "canceled" && report.CancellationReason == "user" {
 			// An explicit task cancellation ends this automatic cycle. It is
@@ -279,6 +293,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			r.ActiveItems = nil
 			r.Queue = nil
 			r.RequestedID = ""
+			r.ForceFresh = map[string]bool{}
 			r.ClientCheckPending = false
 			r.FullDue = now.Add(a.Options.FullInterval)
 			r.RetryAt = time.Time{}
@@ -298,9 +313,39 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			r.ActivePlatform = ""
 			return a.save(r)
 		}
+		evidenceAt := now
+		var reusedTarget *Target
+		if r.ActiveReused {
+			_, version, err := a.Store.Checks.Samples(ctx)
+			if err != nil {
+				return err
+			}
+			var ok bool
+			target := plan.Targets[platform]
+			if len(r.ActiveItems) > 0 {
+				target = r.ActiveItems[0].Target
+			}
+			reusedTarget = &target
+			evidenceAt, ok = a.reuseTime(report, target, platform, version, now)
+			if !ok {
+				r.requeueActive()
+				r.ActiveRunID, r.ActivePlatform, r.ActiveReused = "", "", false
+				return a.save(r)
+			}
+		}
 		observations, e := Evaluate(report, platform, a.Options.Policy, now)
 		if e != nil {
 			return a.deferFailure(r, e)
+		}
+		if reusedTarget != nil {
+			// A manual full report may contain many scripts. Consume only the
+			// scheduled group, preserving one-candidate discovery semantics.
+			for _, x := range observations {
+				if x.Target == *reusedTarget {
+					observations = []Evidence{x}
+					break
+				}
+			}
 		}
 		r.ActiveRunID = ""
 		r.ActivePlatform = ""
@@ -308,8 +353,10 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		r.ActiveItems = nil
 		r.Failures = 0
 		r.LastError = ""
-		r.LastCompleted = now
-		r.RequestedID = ""
+		if !r.ActiveReused {
+			r.LastCompleted = now
+		}
+		r.ActiveReused = false
 		status := r.Platforms[platform]
 		var current *Evidence
 		for i := range observations {
@@ -319,7 +366,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			}
 		}
 		if current != nil {
-			status.NextCheck = now.Add(a.Options.WatchInterval)
+			status.NextCheck = evidenceAt.Add(a.Options.WatchInterval)
 			previous := status.Evidence
 			if previous == nil || previous.Target != current.Target || previous.SampleVersion != current.SampleVersion || previous.ProbeVersion != current.ProbeVersion || now.Before(previous.CheckedAt) || now.Sub(previous.CheckedAt) > a.Options.Policy.MaxAge {
 				status.FailedChecks = 0
@@ -379,7 +426,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 				status.TargetSHA256 = x.Target.SHA256
 				status.Evidence = &x
 				status.Health = "available"
-				status.NextCheck = now.Add(a.Options.WatchInterval)
+				status.NextCheck = evidenceAt.Add(a.Options.WatchInterval)
 				status.FailedChecks = 0
 				status.DecisionReason = "initial_source_selected"
 				if plan.Targets[platform].SHA256 != "" {
@@ -397,6 +444,12 @@ func (a *Automatic) Tick(ctx context.Context) error {
 					status.DecisionReason = "no_eligible_source"
 				}
 			}
+		}
+		if !discovery || !r.hasPlatform(platform) || status.Health == "available" {
+			delete(r.ForceFresh, platform)
+		}
+		if len(r.ForceFresh) == 0 {
+			r.RequestedID = ""
 		}
 		if discovery && len(r.Queue) == 0 {
 			// Advance from completion too: an inherited queue may have an
@@ -571,9 +624,10 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	}
 	if platform == "" {
 		r.RequestedID = ""
+		r.ForceFresh = map[string]bool{}
 		return a.save(r)
 	}
-	set, _, e := a.Store.Checks.Samples(ctx)
+	set, sampleVersion, e := a.Store.Checks.Samples(ctx)
 	if e != nil {
 		return a.deferFailure(r, e)
 	}
@@ -584,7 +638,10 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		}
 	}
 	if n < a.Options.Policy.MinSamples {
-		r.RequestedID = ""
+		delete(r.ForceFresh, platform)
+		if len(r.ForceFresh) == 0 {
+			r.RequestedID = ""
+		}
 		status := r.Platforms[platform]
 		status.Confirmation = nil
 		status.DecisionReason = "insufficient_samples"
@@ -637,6 +694,24 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		}
 	}
 	r.ActivePlatform = platform
+	r.ActiveReused = false
+	// Reuse ordinary watches and initial candidates only. Rechecks and
+	// replacement batches must observe the incumbent afresh.
+	status := r.Platforms[platform]
+	if !r.ForceFresh[platform] && status.FailedChecks == 0 && len(selections) == 1 && (full || status.DecisionReason != "awaiting_check") {
+		target := plan.Targets[platform]
+		if full {
+			target = candidates[0]
+		}
+		exclude := ""
+		if previous := r.Platforms[platform].Evidence; previous != nil {
+			exclude = previous.RunID
+		}
+		if id := a.reusableReport(ctx, target, platform, sampleVersion, exclude, now); id != "" {
+			r.ActiveRunID, r.ActiveRevision, r.ActiveReused = id, st.ControlRevision, true
+			return a.save(r)
+		}
+	}
 	id, _, e := a.Controller.Start(ctx, sourcecheck.RunOptions{Platform: platform, Selections: selections, Timeout: budget})
 	if errors.Is(e, sourcecheck.ErrBusy) {
 		r.ActivePlatform = ""
@@ -666,7 +741,7 @@ func (a *Automatic) Request(ctx context.Context, in ControlInput) (string, error
 	if r.RequestedID != "" {
 		return r.RequestedID, nil
 	}
-	if a.Controller.ActiveID() != "" {
+	if a.Controller.ActiveID() != "" || r.ActiveRunID != "" {
 		return "", sourcecheck.ErrBusy
 	}
 	r.RequestedID, e = newID("check-")
@@ -674,6 +749,7 @@ func (a *Automatic) Request(ctx context.Context, in ControlInput) (string, error
 		return "", e
 	}
 	r.RetryAt = time.Time{}
+	r.ForceFresh = map[string]bool{"qq": true, "netease": true}
 	for _, status := range r.Platforms {
 		status.NextCheck = time.Time{}
 	}

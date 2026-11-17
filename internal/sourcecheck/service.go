@@ -229,7 +229,11 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 			}
 			index++
 			j := Job{Format: ProtocolVersion, ID: fmt.Sprintf("%s-%d", report.RunID, index), ScriptPath: script.File.Path, ScriptSHA256: script.File.SHA256, Script: script.Content, Sample: sample, Quality: "128k"}
+			observedAt := s.now()
 			result := s.Runner.Run(ctx, j)
+			// Host observation time includes process startup; finishing a long
+			// report must never renew the freshness of its early jobs.
+			result.CheckedAt = observedAt
 			report.Results = append(report.Results, result)
 			duplicates.add(report.Results, len(report.Results)-1)
 			report.Completed++
