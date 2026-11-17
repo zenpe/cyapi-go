@@ -19,6 +19,105 @@ type availabilityRunner struct {
 	calls    map[string]int
 }
 
+type cancellationRunner struct{ entered chan struct{} }
+
+func (r cancellationRunner) Run(ctx context.Context, j sourcecheck.Job) sourcecheck.Result {
+	close(r.entered)
+	<-ctx.Done()
+	return automaticRunner{}.Run(ctx, j)
+}
+
+func TestCancelAutomaticBatchEndsCycleWithoutRetry(t *testing.T) {
+	a, now, _ := availabilityFixture(t)
+	entered := make(chan struct{})
+	a.Store.Checks.Runner = cancellationRunner{entered}
+	if err := a.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("automatic batch did not start")
+	}
+	r, _ := a.runtime()
+	if err := a.Controller.Cancel(r.ActiveRunID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for a.Controller.ActiveID() != "" {
+		if time.Now().After(deadline) {
+			t.Fatal("canceled worker did not stop")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Restart before the scheduler has consumed the cancellation report.
+	restartCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	done := make(chan struct{})
+	go func() { a.Run(restartCtx); close(done) }()
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		a.mu.Lock()
+		r, err := a.runtime()
+		a.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.ActiveRunID == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("restart did not consume cancellation")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	stop()
+	<-done
+	*now = now.Add(90 * time.Minute)
+	for i := 0; i < 10; i++ {
+		if err := a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, _ = a.runtime()
+	if len(r.Queue) != 0 || r.ActiveRunID != "" || r.Failures != 0 || r.LastError != "" || r.Platforms["netease"].DecisionReason != "check_canceled" {
+		t.Fatal("canceled automatic work was requeued", r)
+	}
+}
+
+func TestBatchDeadlineStillUsesFailureBackoff(t *testing.T) {
+	a, _, _ := availabilityFixture(t)
+	if err := a.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := a.runtime()
+	deadline := time.Now().Add(3 * time.Second)
+	for a.Controller.ActiveID() != "" {
+		if time.Now().After(deadline) {
+			t.Fatal("worker stalled")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	report, err := a.Store.Checks.Report(r.ActiveRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both a deadline and an explicit cancellation use the canceled report
+	// state; only the latter is an instruction to stop the cycle.
+	report.State = "canceled"
+	report.Error = context.DeadlineExceeded.Error()
+	if err = saveJSON(filepath.Join(a.Store.Checks.Directory, "runs", report.RunID+".json"), report); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Tick(context.Background()); err == nil {
+		t.Fatal("deadline incorrectly treated as explicit cancellation")
+	}
+	r, _ = a.runtime()
+	if r.Failures != 1 || r.RetryAt.IsZero() || len(r.Queue) == 0 {
+		t.Fatal("deadline lost failure backoff", r)
+	}
+}
+
 func (r *availabilityRunner) set(platform, path, outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -248,7 +347,7 @@ func TestFailedIncumbentReopensSearchWhileOtherPlatformHasPendingCandidates(t *t
 	}
 }
 
-func TestLowFrequencyDiscoveryPreservesHealthyRecommendationWithoutRereadingIt(t *testing.T) {
+func TestOverdueDiscoveryNeverScansAlternativesForHealthyRecommendations(t *testing.T) {
 	a, now, runner := availabilityFixture(t)
 	bootstrapAvailability(t, a)
 	before, _, _ := a.Store.AutomaticCurrent(context.Background())
@@ -257,20 +356,109 @@ func TestLowFrequencyDiscoveryPreservesHealthyRecommendationWithoutRereadingIt(t
 	if err := a.save(r); err != nil {
 		t.Fatal(err)
 	}
-	runAvailabilityBatch(t, a)
-	runAvailabilityBatch(t, a)
-	runAvailabilityBatch(t, a)
-	runAvailabilityBatch(t, a)
+	for i := 0; i < 20; i++ {
+		if err := a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	after, _, _ := a.Store.AutomaticCurrent(context.Background())
 	if before.CurrentPlanID != after.CurrentPlanID || runner.count("qq", "test.js") != 3 || runner.count("netease", "test.js") != 3 {
 		t.Fatal("discovery changed or repeatedly downloaded healthy incumbents")
 	}
-	if runner.count("qq", "z-alternative.js") != 3 || runner.count("qq", "zz-unused.js") != 3 {
-		t.Fatal("low-frequency discovery did not finish")
+	if runner.count("qq", "z-alternative.js") != 0 || runner.count("qq", "zz-unused.js") != 0 || runner.count("netease", "z-alternative.js") != 0 {
+		t.Fatal("healthy recommendations started background discovery")
 	}
 	r, _ = a.runtime()
 	if len(r.Queue) != 0 {
 		t.Fatal("discovery never drained")
+	}
+}
+
+func TestHealthyWatchDropsInheritedCandidateQueue(t *testing.T) {
+	a, now, runner := availabilityFixture(t)
+	bootstrapAvailability(t, a)
+	r, _ := a.runtime()
+	r.Queue = []scanItem{{Platform: "netease", Target: Target{Path: "z-alternative.js"}}}
+	r.FullDue = *now
+	r.Platforms["netease"].NextCheck = *now
+	if err := a.save(r); err != nil {
+		t.Fatal(err)
+	}
+	runAvailabilityBatch(t, a)
+	for i := 0; i < 10; i++ {
+		if err := a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, _ = a.runtime()
+	if len(r.Queue) != 0 || runner.count("netease", "z-alternative.js") != 0 || a.Controller.ActiveID() != "" {
+		t.Fatal("healthy incumbent left legacy discovery running")
+	}
+}
+
+func TestManualFullCheckCompletesWithoutPublishingOrRestartingDiscovery(t *testing.T) {
+	a, _, runner := availabilityFixture(t)
+	bootstrapAvailability(t, a)
+	before, _, _ := a.Store.AutomaticCurrent(context.Background())
+	id, _, err := a.Controller.Start(context.Background(), sourcecheck.RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for a.Controller.ActiveID() != "" {
+		if err = a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("manual full check stalled")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	report, err := a.Store.Checks.Report(id)
+	if err != nil || report.State != "completed" || report.Completed != 18 {
+		t.Fatal("manual full check stopped early", report, err)
+	}
+	for i := 0; i < 10; i++ {
+		if err = a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, _, _ := a.Store.AutomaticCurrent(context.Background())
+	if before.CurrentPlanID != after.CurrentPlanID || a.Controller.ActiveID() != "" || runner.count("netease", "z-alternative.js") != 3 {
+		t.Fatal("manual report changed recommendation or restarted automatic scans")
+	}
+}
+
+func TestExhaustedInheritedSearchDoesNotRestartImmediately(t *testing.T) {
+	a, now, runner := availabilityFixture(t)
+	for _, platform := range []string{"qq", "netease"} {
+		for _, path := range []string{"test.js", "z-alternative.js", "zz-unused.js"} {
+			runner.set(platform, path, "failed")
+		}
+	}
+	// Model the final batch of a persisted search with an overdue retry date.
+	r, _ := a.runtime()
+	r.Generation = "old-catalog"
+	if err := a.save(r); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		runAvailabilityBatch(t, a)
+	}
+	r, _ = a.runtime()
+	r.FullDue = *now
+	if err := a.save(r); err != nil {
+		t.Fatal(err)
+	}
+	runAvailabilityBatch(t, a)
+	for i := 0; i < 10; i++ {
+		if err := a.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, _ = a.runtime()
+	if a.Controller.ActiveID() != "" || r.CompletedTasks != 18 || !r.FullDue.After(*now) {
+		t.Fatal("exhausted queue restarted without waiting", r)
 	}
 }
 

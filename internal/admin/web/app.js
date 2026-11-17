@@ -92,6 +92,7 @@
   const automaticReasons={initial_source_selected:'已检测合格并发布',current_source_healthy:'当前推荐符合检查条件，继续使用',awaiting_failure_recheck:'当前推荐检查异常，等待一次复测',searching_replacement:'复测仍异常，正在寻找替代音源',replaced_after_failed_recheck:'已找到合格替代音源并发布',searching_initial_source:'正在寻找首个合格音源',no_eligible_source:'本轮未找到合格音源，等待下次搜索',probe_limited:'检测受到环境限制，保留当前推荐',insufficient_samples:'测试样例不足',publication_inputs_changed:'发布前输入已变化，重新检查',awaiting_check:'等待检查',rollback_and_pause:'回退并暂停',sustained_evidence_improvement:'历史版本：多轮证据改善'};
   async function loadAutomatic(){
     automaticReasons.check_failed_retry_scheduled='本轮检查失败，已安排重试';
+    automaticReasons.check_canceled='本轮已取消，等待下次巡检';
     const data=await api('/admin/source-recommendations/automatic');automaticState=data;
     $('automatic-mode').textContent=!data.enabled?'尚未启用：在服务配置启用 source_recommendation.automatic.enabled。':data.paused?'自动维护已暂停，已发布推荐仍可使用。':`自动维护中 · 最近完成 ${date(data.runtime?.lastCompleted)} · 候选搜索剩余 ${data.runtime?.queue?.length||0} 项${data.runtime?.lastError?' · 检查待重试':''}`;
     if(data.enabled){const r=data.runtime||{}; $('automatic-mode').textContent+=` · 已完成 ${r.completedTasks||0} 项，资源读取 ${((r.resourceBytes||0)/1048576).toFixed(1)} MiB（不含脚本接口流量）`;if(data.progress)$('automatic-mode').textContent+=` · 当前批次 ${data.progress.completed}/${data.progress.planned}`;}

@@ -146,9 +146,19 @@ func (a *Automatic) Run(ctx context.Context) {
 	a.mu.Lock()
 	_, _, r, e := a.load()
 	if e == nil {
-		r.requeueActive()
-		r.ActiveRunID = ""
-		r.ActivePlatform = ""
+		// Preserve a persisted explicit cancellation for Tick to consume;
+		// restarting must not turn the canceled batch back into queued work.
+		explicitlyCanceled := false
+		if r.ActiveRunID != "" {
+			if report, err := a.Store.Checks.Report(r.ActiveRunID); err == nil {
+				explicitlyCanceled = report.State == "canceled" && report.Error == context.Canceled.Error()
+			}
+		}
+		if !explicitlyCanceled {
+			r.requeueActive()
+			r.ActiveRunID = ""
+			r.ActivePlatform = ""
+		}
 		for _, p := range r.Platforms {
 			p.Confirmation = nil
 		}
@@ -242,6 +252,26 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		for _, result := range report.Results {
 			r.ResourceBytes += int64(result.Resource.Bytes)
 		}
+		if report.State == "canceled" && report.Error == context.Canceled.Error() {
+			// An explicit task cancellation ends this automatic cycle. It is
+			// neither source evidence nor a transient failure to requeue.
+			r.ActiveRunID = ""
+			r.ActivePlatform = ""
+			r.ActiveItems = nil
+			r.Queue = nil
+			r.RequestedID = ""
+			r.ClientCheckPending = false
+			r.FullDue = now.Add(a.Options.FullInterval)
+			r.RetryAt = time.Time{}
+			r.Failures = 0
+			r.LastError = ""
+			for _, status := range r.Platforms {
+				status.FailedChecks = 0
+				status.NextCheck = now.Add(a.Options.WatchInterval)
+				status.DecisionReason = "check_canceled"
+			}
+			return a.save(r)
+		}
 		platform := r.ActivePlatform
 		if st.ControlRevision != r.ActiveRevision {
 			r.requeueActive()
@@ -279,18 +309,16 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			status.Evidence = current
 			switch {
 			case current.P >= a.Options.Policy.MinPositive:
-				recovering := status.FailedChecks > 0
 				status.FailedChecks = 0
 				status.Health = "available"
 				status.DecisionReason = "current_source_healthy"
-				if recovering {
-					r.dropPlatform(platform)
-				}
+				r.dropPlatform(platform)
 			case current.E > 0:
 				// Restricted probe evidence does not prove a source failure.
 				status.FailedChecks = 0
 				status.Health = "limited"
 				status.DecisionReason = "probe_limited"
+				r.dropPlatform(platform)
 			default:
 				status.Health = "degraded"
 				if status.FailedChecks < 2 {
@@ -351,10 +379,22 @@ func (a *Automatic) Tick(ctx context.Context) error {
 				}
 			}
 		}
+		if discovery && len(r.Queue) == 0 {
+			// Advance from completion too: an inherited queue may have an
+			// already-expired deadline and must not restart immediately.
+			r.FullDue = now.Add(a.Options.FullInterval)
+		}
 		return a.save(r)
 	}
 	if now.Before(r.RetryAt) || a.Controller.ActiveID() != "" {
 		return nil
+	}
+	// Retire legacy background discovery for published platforms. Only a
+	// confirmed failure may open replacement search; manual reports are separate.
+	for platform, target := range plan.Targets {
+		if target.SHA256 != "" && r.Platforms[platform].FailedChecks < 2 {
+			r.dropPlatform(platform)
+		}
 	}
 	if r.ClientCheckPending {
 		// Advance ordinary scheduling, preserving the scan queue, backoff,
@@ -437,6 +477,9 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			r.Generation = manifest.Generation
 			r.Queue = nil
 			for _, p := range []string{"qq", "netease"} {
+				if plan.Targets[p].SHA256 != "" && r.Platforms[p].FailedChecks < 2 {
+					continue
+				}
 				if r.Done["platform:"+p] {
 					continue
 				}
@@ -512,7 +555,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		r.Queue = remaining
 	}
 	selections := []sourcecheck.ScriptSelection{}
-	// Healthy incumbents need no repeated reads during low-frequency discovery.
+	// Replacement batches recheck the incumbent so recovery stops the search.
 	if t := plan.Targets[platform]; t.SHA256 != "" && (!full || r.Platforms[platform].FailedChecks >= 2) {
 		selections = append(selections, sourcecheck.ScriptSelection{Path: t.Path, SHA256: t.SHA256, Archived: true})
 	}
