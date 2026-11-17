@@ -9,18 +9,20 @@ import (
 	"cyapi-go/internal/sourcecheck"
 )
 
-const PolicyVersion = "platform-evidence-v1"
+const PolicyVersion = "platform-availability-v2"
 
 type Policy struct {
 	MinSamples  int           `json:"minSamples"`
 	MinPositive int           `json:"minPositiveSamples"`
-	Rounds      int           `json:"confirmationRounds"`
 	MaxAge      time.Duration `json:"evidenceMaxAge"`
 }
 
-func DefaultPolicy() Policy { return Policy{3, 2, 2, 6 * time.Hour} }
+func DefaultPolicy() Policy { return Policy{3, 2, 6 * time.Hour} }
 func (p Policy) Fingerprint() string {
-	b, _ := json.Marshal(p)
+	b, _ := json.Marshal(struct {
+		MinSamples, MinPositive int
+		MaxAge                  time.Duration
+	}{p.MinSamples, p.MinPositive, p.MaxAge})
 	return digest(append([]byte(PolicyVersion), b...))
 }
 
@@ -132,33 +134,7 @@ func Evaluate(r sourcecheck.Report, platform string, p Policy, now time.Time) ([
 	return out, nil
 }
 
-// Gains preserves all currently observed positive songs. Unknown and failure
-// remain separate reasons; environment limitations never create superiority.
-func Gains(a, b Evidence) map[string]string {
-	if a.Platform != b.Platform || a.RunID != b.RunID || a.SampleVersion != b.SampleVersion || a.ProbeVersion != b.ProbeVersion || a.N != b.N {
-		return nil
-	}
-	gains := map[string]string{}
-	for song, kind := range a.Songs {
-		next := b.Songs[song]
-		if kind == "P" && next != "P" {
-			return nil
-		}
-		if next == "P" {
-			switch kind {
-			case "F", "unsupported":
-				gains[song] = "coverage_improved"
-			case "U":
-				gains[song] = "evidence_increased"
-			}
-		}
-	}
-	if len(gains) == 0 {
-		return nil
-	}
-	return gains
-}
-
+// Confirmation remains readable for historical decisions written before v2.
 type Confirmation struct {
 	Fingerprint     string            `json:"fingerprint"`
 	CurrentHash     string            `json:"currentHash"`
@@ -168,45 +144,4 @@ type Confirmation struct {
 	Rounds          []Evidence        `json:"rounds"`
 	IncumbentRounds []Evidence        `json:"incumbentRounds,omitempty"`
 	Gains           map[string]string `json:"gains"`
-}
-
-func Confirm(previous *Confirmation, current *Evidence, candidate Evidence, p Policy, now time.Time) (*Confirmation, bool) {
-	if candidate.P < p.MinPositive || candidate.N < p.MinSamples || now.Before(candidate.CheckedAt) || now.Sub(candidate.StartedAt) > p.MaxAge {
-		return nil, false
-	}
-	gains := map[string]string{}
-	currentHash := ""
-	if current != nil {
-		currentHash = current.Target.SHA256
-		gains = Gains(*current, candidate)
-		if len(gains) == 0 {
-			return nil, false
-		}
-	}
-	fp := p.Fingerprint() + candidate.SampleVersion + candidate.ProbeVersion + candidate.Platform
-	c := previous
-	if c == nil || c.Fingerprint != fp || c.CurrentHash != currentHash || c.Candidate != candidate.Target || now.Before(c.LastAt) || now.Sub(c.FirstAt) > p.MaxAge {
-		c = &Confirmation{Fingerprint: fp, CurrentHash: currentHash, Candidate: candidate.Target, FirstAt: candidate.StartedAt, Gains: gains}
-	}
-	if len(c.Rounds) > 0 {
-		if c.Rounds[len(c.Rounds)-1].RunID == candidate.RunID || candidate.StartedAt.Sub(c.LastAt) < 10*time.Minute {
-			return c, false
-		}
-		if current != nil {
-			for song := range c.Gains {
-				if _, ok := gains[song]; !ok {
-					delete(c.Gains, song)
-				}
-			}
-			if len(c.Gains) == 0 {
-				return nil, false
-			}
-		}
-	}
-	c.Rounds = append(c.Rounds, candidate)
-	if current != nil {
-		c.IncumbentRounds = append(c.IncumbentRounds, *current)
-	}
-	c.LastAt = candidate.CheckedAt
-	return c, len(c.Rounds) >= p.Rounds
 }

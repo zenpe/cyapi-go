@@ -33,7 +33,7 @@ type AutomaticRecommendation struct {
 	WatchInterval      time.Duration `yaml:"watch_interval"`
 	MinSamples         int           `yaml:"min_samples"`
 	MinPositiveSamples int           `yaml:"min_positive_samples"`
-	ConfirmationRounds int           `yaml:"confirmation_rounds"`
+	ConfirmationRounds int           `yaml:"confirmation_rounds,omitempty"` // Deprecated; accepted for existing configurations, ignored.
 	EvidenceMaxAge     time.Duration `yaml:"evidence_max_age"`
 }
 
@@ -112,7 +112,7 @@ type Providers struct {
 
 func Defaults() Config {
 	var c Config
-	c.SourceRecommendation.Automatic = AutomaticRecommendation{FullInterval: 72 * time.Hour, WatchInterval: 3 * time.Hour, MinSamples: 3, MinPositiveSamples: 2, ConfirmationRounds: 2, EvidenceMaxAge: 6 * time.Hour}
+	c.SourceRecommendation.Automatic = AutomaticRecommendation{FullInterval: 7 * 24 * time.Hour, WatchInterval: 3 * time.Hour, MinSamples: 3, MinPositiveSamples: 2, EvidenceMaxAge: 6 * time.Hour}
 	c.RuntimeDirectory = "data"
 	c.SecretsFile = "secrets.env"
 	c.Maintenance = Maintenance{SyncInterval: 6 * time.Hour, BackupInterval: 24 * time.Hour, BackupDirectory: "backups", BackupKeep: 7}
@@ -207,11 +207,11 @@ func (c Config) Validate() error {
 	if a.FullInterval < time.Minute || a.WatchInterval < time.Minute {
 		return errors.New("automatic full_interval and watch_interval must be at least 1m")
 	}
-	if a.MinSamples < 1 || a.MinSamples > 32 || a.MinPositiveSamples < 1 || a.MinPositiveSamples > a.MinSamples || a.ConfirmationRounds < 2 || a.ConfirmationRounds > 12 {
-		return errors.New("invalid automatic min_samples, min_positive_samples or confirmation_rounds")
+	if a.MinSamples < 1 || a.MinSamples > 32 || a.MinPositiveSamples < 1 || a.MinPositiveSamples > a.MinSamples {
+		return errors.New("invalid automatic min_samples or min_positive_samples")
 	}
-	if a.EvidenceMaxAge < time.Duration(a.ConfirmationRounds)*90*time.Minute+time.Duration(a.ConfirmationRounds-1)*10*time.Minute || a.EvidenceMaxAge > 30*24*time.Hour {
-		return errors.New("automatic evidence_max_age must fit confirmation budget and be at most 30 days")
+	if a.EvidenceMaxAge < 90*time.Minute || a.EvidenceMaxAge > 30*24*time.Hour {
+		return errors.New("automatic evidence_max_age must fit a single check budget and be at most 30 days")
 	}
 	seenAdmin := map[int64]bool{}
 	for _, id := range c.Admin.UserIDs {

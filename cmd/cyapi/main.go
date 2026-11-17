@@ -382,7 +382,7 @@ func run(args []string, log *slog.Logger) error {
 		return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS, LXMetadata: m.LXMetadata}, e
 	}
 	autoConfig := c.SourceRecommendation.Automatic
-	automatic := &sourcerecommendation.Automatic{Store: recommendations, Controller: controller, Metadata: metadata, Log: log, Options: sourcerecommendation.AutomaticOptions{Enabled: autoConfig.Enabled, FullInterval: autoConfig.FullInterval, WatchInterval: autoConfig.WatchInterval, Policy: sourcerecommendation.Policy{MinSamples: autoConfig.MinSamples, MinPositive: autoConfig.MinPositiveSamples, Rounds: autoConfig.ConfirmationRounds, MaxAge: autoConfig.EvidenceMaxAge}}}
+	automatic := &sourcerecommendation.Automatic{Store: recommendations, Controller: controller, Metadata: metadata, Log: log, Options: sourcerecommendation.AutomaticOptions{Enabled: autoConfig.Enabled, FullInterval: autoConfig.FullInterval, WatchInterval: autoConfig.WatchInterval, Policy: sourcerecommendation.Policy{MinSamples: autoConfig.MinSamples, MinPositive: autoConfig.MinPositiveSamples, MaxAge: autoConfig.EvidenceMaxAge}}}
 	if c.SourceRecommendation.Enabled {
 		recommendationRoutes = func(m *http.ServeMux) {
 			recommendations.Register(m)

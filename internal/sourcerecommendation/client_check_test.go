@@ -28,7 +28,7 @@ func TestClientCheckConcurrentDurableAdmission(t *testing.T) {
 	r, _ := a.runtime()
 	r.RetryAt = now.Add(time.Hour)
 	r.ResumeAt = now.Add(2 * time.Hour)
-	r.Platforms["qq"].Confirmation = &Confirmation{LastAt: *now}
+	r.Platforms["qq"].FailedChecks = 1
 	if err := a.save(r); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestClientCheckConcurrentDurableAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ = a.runtime()
-	if !r.ClientCheckPending || !r.RetryAt.Equal(now.Add(time.Hour)) || !r.ResumeAt.Equal(now.Add(2*time.Hour)) || r.Platforms["qq"].Confirmation == nil || a.Controller.ActiveID() != "" {
+	if !r.ClientCheckPending || !r.RetryAt.Equal(now.Add(time.Hour)) || !r.ResumeAt.Equal(now.Add(2*time.Hour)) || r.Platforms["qq"].FailedChecks != 1 || a.Controller.ActiveID() != "" {
 		t.Fatal("request bypassed scheduling guards", r)
 	}
 	r.ClientCheckPending = false

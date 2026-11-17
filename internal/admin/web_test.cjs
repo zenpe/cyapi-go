@@ -85,6 +85,23 @@ test('automatic status shows progress and uses control version for pause and rol
   assert.equal(f.element('automatic-check').disabled,true);
 });
 
+test('automatic initial state hides zero dates, expired evidence and confirmation rounds', async () => {
+  const data={enabled:true,paused:false,state:{currentPlanId:'',previousPlanId:''},
+    runtime:{lastCompleted:'0001-01-01T00:00:00Z',fullDue:'2026-11-24T01:00:00Z',queue:[]},
+    platforms:{qq:{health:'unavailable',stale:true,decisionReason:'searching_initial_source'},netease:{health:'unavailable',decisionReason:'no_eligible_source'}}};
+  const f=fixture('',null,data);
+  await f.api.loadAutomatic();
+  assert.match(f.element('automatic-mode').textContent,/最近完成 —/);
+  const cards=f.element('automatic-platforms').textContent;
+  assert.match(cards,/暂未发布推荐/);
+  assert.match(cards,/正在寻找首个合格音源/);
+  assert.doesNotMatch(cards,/证据已过期|已确认|下一轮确认/);
+  data.platforms.qq={targetSha256:'a'.repeat(64),health:'degraded',failedChecks:1,decisionReason:'awaiting_failure_recheck',nextCheck:'2026-11-17T01:01:00Z'};
+  await f.api.loadAutomatic();
+  assert.match(f.element('automatic-platforms').textContent,/等待一次复测/);
+  assert.match(f.element('automatic-platforms').textContent,/异常复测/);
+});
+
 for (const rollback of [false, true]) {
   test(`confirmation preserves its expected version across refresh (rollback=${rollback})`, async () => {
     const f = fixture('release-A');

@@ -51,69 +51,11 @@ func evidenceReport(now time.Time, a, b []string) sourcecheck.Report {
 	finish := now
 	return sourcecheck.Report{State: "completed", RunID: now.Format(time.RFC3339Nano), StartedAt: now.Add(-time.Minute), FinishedAt: &finish, Planned: len(results), Completed: len(results), Samples: samples, Results: results, SampleSetVersion: "samples", ProbeVersion: sourcecheck.ProbeVersion}
 }
-func TestEvidenceComparisonAndConfirmation(t *testing.T) {
+func TestEvidenceRanksEligibleSources(t *testing.T) {
 	now := time.Now().UTC()
-	p := DefaultPolicy()
-	for _, tc := range []struct {
-		name string
-		a, b []string
-		win  bool
-	}{
-		{"coverage", []string{"P", "P", "F"}, []string{"P", "P", "P"}, true},
-		{"unknown increases evidence", []string{"P", "P", "U"}, []string{"P", "P", "P"}, true},
-		{"environment cannot lose", []string{"P", "P", "E"}, []string{"P", "P", "P"}, false},
-		{"mutual wins", []string{"P", "P", "F"}, []string{"F", "P", "P"}, false},
-		{"common failure", []string{"P", "P", "F"}, []string{"P", "P", "F"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := evidenceReport(now, tc.a, tc.b)
-			out, e := Evaluate(r, "qq", p, now)
-			if e != nil {
-				t.Fatal(e)
-			}
-			byPath := map[string]Evidence{}
-			for _, x := range out {
-				byPath[x.Target.Path] = x
-			}
-			g := Gains(byPath["0.js"], byPath["1.js"])
-			if (len(g) > 0) != tc.win {
-				t.Fatalf("gains %v", g)
-			}
-		})
-	}
-	first, e := Evaluate(evidenceReport(now, []string{"P", "P", "F"}, []string{"P", "P", "P"}), "qq", p, now)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var current, candidate Evidence
-	for _, x := range first {
-		if x.Target.Path == "0.js" {
-			current = x
-		} else {
-			candidate = x
-		}
-	}
-	c, ready := Confirm(nil, &current, candidate, p, now)
-	if ready || c == nil {
-		t.Fatal("published before confirmation")
-	}
-	if _, ready = Confirm(c, &current, candidate, p, now); ready {
-		t.Fatal("same report counted twice")
-	}
-	later := now.Add(11 * time.Minute)
-	current.RunID = "later"
-	candidate.RunID = "later"
-	current.StartedAt = later
-	candidate.StartedAt = later
-	current.CheckedAt = later
-	candidate.CheckedAt = later
-	c, ready = Confirm(c, &current, candidate, p, later)
-	if !ready || len(c.Rounds) != 2 {
-		t.Fatal("sustained gain not confirmed")
-	}
-	_, ready = Confirm(c, &current, candidate, p, later.Add(7*time.Hour))
-	if ready {
-		t.Fatal("expired evidence published")
+	out, err := Evaluate(evidenceReport(now, []string{"P", "P", "F"}, []string{"P", "P", "P"}), "qq", DefaultPolicy(), now)
+	if err != nil || len(out) != 2 || out[0].Target.Path != "1.js" || out[0].P != 3 {
+		t.Fatal(out, err)
 	}
 }
 func TestEvidenceRejectsIncompleteUnconfinedAndFalsePositives(t *testing.T) {
@@ -131,29 +73,6 @@ func TestEvidenceRejectsIncompleteUnconfinedAndFalsePositives(t *testing.T) {
 	r.Completed--
 	if _, e = Evaluate(r, "qq", DefaultPolicy(), now); e == nil {
 		t.Fatal("partial report accepted")
-	}
-}
-
-func TestConfirmationRequiresSameGainAcrossRounds(t *testing.T) {
-	now := time.Now().UTC()
-	p := DefaultPolicy()
-	round := func(at time.Time, kinds []string) (Evidence, Evidence) {
-		xs, err := Evaluate(evidenceReport(at, kinds, []string{"P", "P", "P"}), "qq", p, at)
-		if err != nil {
-			t.Fatal(err)
-		}
-		byPath := map[string]Evidence{}
-		for _, x := range xs {
-			byPath[x.Target.Path] = x
-		}
-		return byPath["0.js"], byPath["1.js"]
-	}
-	a, b := round(now, []string{"F", "P", "P"})
-	c, _ := Confirm(nil, &a, b, p, now)
-	later := now.Add(12 * time.Minute)
-	a, b = round(later, []string{"P", "F", "P"})
-	if c, ready := Confirm(c, &a, b, p, later); ready || c != nil {
-		t.Fatal("different winning songs confirmed", c)
 	}
 }
 
@@ -322,14 +241,6 @@ func TestAutomaticSchedulerPublishesBothPlatformsWithoutAdmin(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	tick()
-	tick()
-	tick()
-	tick()
-	if st, _, _ := s.AutomaticCurrent(ctx); st.CurrentPlanID != "" {
-		t.Fatal("published first round")
-	}
-	now = now.Add(11 * time.Minute)
 	tick()
 	tick()
 	tick()

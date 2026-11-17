@@ -19,13 +19,12 @@ func write(t *testing.T, body string) string {
 
 func TestAutomaticRecommendationConfiguration(t *testing.T) {
 	c, err := Load(write(t, "source_recommendation:\n  enabled: true\n  automatic:\n    enabled: true\n"))
-	if err != nil || c.Admin.Enabled || !c.SourceRecommendation.Automatic.Enabled || c.SourceRecommendation.Automatic.FullInterval != 72*time.Hour {
+	if err != nil || c.Admin.Enabled || !c.SourceRecommendation.Automatic.Enabled || c.SourceRecommendation.Automatic.FullInterval != 7*24*time.Hour {
 		t.Fatal("automatic should run independently of admin", err)
 	}
 	for _, body := range []string{
 		"source_recommendation:\n  automatic:\n    enabled: true\n",
 		"source_recommendation:\n  automatic:\n    min_positive_samples: 4\n",
-		"source_recommendation:\n  automatic:\n    confirmation_rounds: 1\n",
 		"source_recommendation:\n  automatic:\n    evidence_max_age: 10m\n",
 	} {
 		if _, err := Load(write(t, body)); err == nil {
@@ -95,5 +94,14 @@ func TestAdminAllowlistValidation(t *testing.T) {
 	c, e := Load(write(t, "admin:\n  enabled: true\n  user_ids: [7]\n"))
 	if e != nil || !c.Admin.Enabled || c.Admin.UserIDs[0] != 7 {
 		t.Fatal(e)
+	}
+}
+
+func TestLegacyConfirmationRoundsAreIgnored(t *testing.T) {
+	for _, rounds := range []string{"1", "2", "12"} {
+		c, err := Load(write(t, "source_recommendation:\n  enabled: true\n  automatic:\n    enabled: true\n    confirmation_rounds: "+rounds+"\n"))
+		if err != nil || !c.SourceRecommendation.Automatic.Enabled {
+			t.Fatal("legacy settings must remain loadable", err)
+		}
 	}
 }

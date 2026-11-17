@@ -13,11 +13,10 @@ source_recommendation:
   enabled: false
   automatic:
     enabled: false
-    full_interval: 72h
+    full_interval: 168h
     watch_interval: 3h
     min_samples: 3
     min_positive_samples: 2
-    confirmation_rounds: 2
     evidence_max_age: 6h
 mail:
   sender_email: ""

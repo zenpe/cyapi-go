@@ -30,6 +30,7 @@ type PlatformStatus struct {
 	Candidate      *Target       `json:"candidate,omitempty"`
 	Confirmation   *Confirmation `json:"confirmation,omitempty"`
 	NextCheck      time.Time     `json:"nextCheck"`
+	FailedChecks   int           `json:"failedChecks,omitempty"`
 }
 type scanItem struct {
 	Platform string `json:"platform"`
@@ -99,8 +100,17 @@ func (a *Automatic) runtime() (AutomaticRuntime, error) {
 	if r.Policy != a.Options.Policy.Fingerprint() {
 		for _, p := range r.Platforms {
 			p.Confirmation = nil
+			p.Candidate = nil
+			p.FailedChecks = 0
+			p.NextCheck = time.Time{}
+			p.DecisionReason = "awaiting_check"
 		}
+		r.FullDue = a.now()
 		r.Policy = a.Options.Policy.Fingerprint()
+	}
+	for _, status := range r.Platforms {
+		status.Candidate = nil
+		status.Confirmation = nil
 	}
 	return r, nil
 }
@@ -201,6 +211,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		r.ClientCheckPending = false
 		for _, p := range r.Platforms {
 			p.Confirmation = nil
+			p.FailedChecks = 0
 		}
 		if e := a.save(r); e != nil {
 			return e
@@ -244,13 +255,13 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		}
 		r.ActiveRunID = ""
 		r.ActivePlatform = ""
+		discovery := len(r.ActiveItems) > 0
 		r.ActiveItems = nil
 		r.Failures = 0
 		r.LastError = ""
 		r.LastCompleted = now
 		r.RequestedID = ""
 		status := r.Platforms[platform]
-		status.NextCheck = now.Add(a.Options.WatchInterval)
 		var current *Evidence
 		for i := range observations {
 			x := &observations[i]
@@ -259,72 +270,84 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			}
 		}
 		if current != nil {
+			status.NextCheck = now.Add(a.Options.WatchInterval)
+			previous := status.Evidence
+			if previous == nil || previous.Target != current.Target || previous.SampleVersion != current.SampleVersion || previous.ProbeVersion != current.ProbeVersion || now.Before(previous.CheckedAt) || now.Sub(previous.CheckedAt) > a.Options.Policy.MaxAge {
+				status.FailedChecks = 0
+			}
 			status.TargetSHA256 = current.Target.SHA256
 			status.Evidence = current
-			status.Health = "available"
-			status.DecisionReason = "no_sustained_improvement"
-			if status.Baseline == nil || status.Baseline.Target != current.Target || status.Baseline.SampleVersion != current.SampleVersion || status.Baseline.ProbeVersion != current.ProbeVersion {
-				status.Baseline = current
-			}
-			for id, kind := range status.Baseline.Songs {
-				if kind == "P" && (current.Songs[id] == "F" || current.Songs[id] == "unsupported") {
-					status.Health = "degraded"
+			switch {
+			case current.P >= a.Options.Policy.MinPositive:
+				recovering := status.FailedChecks > 0
+				status.FailedChecks = 0
+				status.Health = "available"
+				status.DecisionReason = "current_source_healthy"
+				if recovering {
+					r.dropPlatform(platform)
+				}
+			case current.E > 0:
+				// Restricted probe evidence does not prove a source failure.
+				status.FailedChecks = 0
+				status.Health = "limited"
+				status.DecisionReason = "probe_limited"
+			default:
+				status.Health = "degraded"
+				if status.FailedChecks < 2 {
+					status.FailedChecks++
+				}
+				if status.FailedChecks == 1 {
+					status.DecisionReason = "awaiting_failure_recheck"
+					status.NextCheck = now.Add(time.Minute)
+				} else {
+					status.DecisionReason = "searching_replacement"
+					if !discovery {
+						r.FullDue = now
+						// Reopen this platform even if the other platform's search
+						// is still using the queue from an earlier publication.
+						delete(r.Done, "platform:"+platform)
+						r.Generation = ""
+					}
 				}
 			}
-			if status.Health != "degraded" && current.E > 0 {
-				status.Health = "limited"
-			}
-			if current.P < a.Options.Policy.MinPositive && status.Health == "available" {
-				status.Health = "unavailable"
-			}
-			if status.Health == "degraded" && now.Sub(r.LastEarlyScan) >= 6*time.Hour {
-				r.FullDue = now
-				r.LastEarlyScan = now
-			}
 		}
-		chosen := false
-		for _, x := range observations {
-			if x.Target == plan.Targets[platform] || x.P < a.Options.Policy.MinPositive {
-				continue
-			}
-			if current != nil && len(Gains(*current, x)) == 0 {
-				continue
-			}
-			if current == nil && plan.Targets[platform].SHA256 != "" {
-				continue
-			}
-			status.Candidate = &x.Target
-			c, ready := Confirm(status.Confirmation, current, x, a.Options.Policy, now)
-			status.Confirmation = c
-			chosen = true
-			if ready {
+		// Keep a qualifying incumbent. Only initial selection or a twice-failed
+		// incumbent permits publication; unrelated candidate batches cannot reset it.
+		canSelect := plan.Targets[platform].SHA256 == "" || (current != nil && status.FailedChecks >= 2)
+		if canSelect {
+			selected := false
+			for _, x := range observations {
+				if x.Target == plan.Targets[platform] || x.P < a.Options.Policy.MinPositive {
+					continue
+				}
 				expected := st
 				expected.ControlRevision = r.ActiveRevision
-				_, e = a.Store.AutomaticPublish(ctx, expected, platform, *c, a.Options.Policy, now, a.Options.Enabled)
+				_, e = a.Store.AutomaticPublish(ctx, expected, platform, x, plan.Targets[platform].SHA256, a.Options.Policy, now, a.Options.Enabled)
 				if e != nil {
-					status.Confirmation = nil
 					status.DecisionReason = "publication_inputs_changed"
-				} else {
-					status.TargetSHA256 = x.Target.SHA256
-					status.Baseline = &x
-					status.Evidence = &x
-					status.Health = "available"
-					status.DecisionReason = "sustained_evidence_improvement"
-					status.Confirmation = nil
-					status.Candidate = nil
+					// Retry discovery after backoff instead of losing the final candidate.
+					r.FullDue = now
+					return a.deferFailure(r, e)
 				}
-			} else {
-				status.DecisionReason = "awaiting_confirmation"
+				status.TargetSHA256 = x.Target.SHA256
+				status.Evidence = &x
+				status.Health = "available"
+				status.NextCheck = now.Add(a.Options.WatchInterval)
+				status.FailedChecks = 0
+				status.DecisionReason = "initial_source_selected"
+				if plan.Targets[platform].SHA256 != "" {
+					status.DecisionReason = "replaced_after_failed_recheck"
+				}
+				r.dropPlatform(platform)
+				selected = true
+				break
 			}
-			break
-		}
-		if !chosen {
-			status.Confirmation = nil
-			for _, x := range observations {
-				if x.Target != plan.Targets[platform] {
-					copy := x.Target
-					status.Candidate = &copy
-					break
+			if !selected {
+				if plan.Targets[platform].SHA256 == "" {
+					status.DecisionReason = "searching_initial_source"
+				}
+				if discovery && !r.hasPlatform(platform) {
+					status.DecisionReason = "no_eligible_source"
 				}
 			}
 		}
@@ -335,7 +358,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	}
 	if r.ClientCheckPending {
 		// Advance ordinary scheduling, preserving the scan queue, backoff,
-		// slice budget and confirmation timestamps.
+		// slice budget and pending failure rechecks.
 		r.ClientCheckPending = false
 		r.FullDue = now
 		for _, status := range r.Platforms {
@@ -392,44 +415,12 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	var platform string
 	var candidates []Target
 	full := false
-	// Candidates belong to the mutable catalog; incumbents belong to the
-	// immutable archive. Drop stale candidates before they can starve scans.
-	manifest, e := a.Store.Sources.Status(ctx)
-	if e != nil {
-		return a.deferFailure(r, e)
-	}
-	available := map[string]string{}
-	for _, f := range manifest.Files {
-		available[f.Path] = f.SHA256
-	}
-	for _, status := range r.Platforms {
-		if c := status.Candidate; c != nil && available[c.Path] != c.SHA256 {
-			status.Candidate = nil
-			status.Confirmation = nil
-		}
-		if c := status.Confirmation; c != nil && available[c.Candidate.Path] != c.Candidate.SHA256 {
-			status.Confirmation = nil
-		}
-	}
+	// Normal watches inspect only the incumbent, including one scheduled recheck.
 	for _, p := range []string{"qq", "netease"} {
 		status := r.Platforms[p]
-		c := status.Confirmation
-		if c != nil && !now.Before(c.LastAt.Add(10*time.Minute)) {
+		if !now.Before(status.NextCheck) && plan.Targets[p].SHA256 != "" {
 			platform = p
-			candidates = []Target{c.Candidate}
 			break
-		}
-	}
-	if platform == "" {
-		for _, p := range []string{"qq", "netease"} {
-			status := r.Platforms[p]
-			if !now.Before(status.NextCheck) && plan.Targets[p].SHA256 != "" {
-				platform = p
-				if status.Candidate != nil {
-					candidates = []Target{*status.Candidate}
-				}
-				break
-			}
 		}
 	}
 	if platform == "" && (!now.Before(r.FullDue) || len(r.Queue) > 0 || r.RequestedID != "") && !now.Before(r.ResumeAt) {
@@ -440,16 +431,20 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		if len(r.Queue) == 0 || manifest.Generation != r.Generation {
 			if len(r.Queue) == 0 {
 				r.Done = map[string]bool{}
+				r.SliceStarted = time.Time{}
 				r.FullDue = now.Add(a.Options.FullInterval)
 			}
 			r.Generation = manifest.Generation
 			r.Queue = nil
 			for _, p := range []string{"qq", "netease"} {
+				if r.Done["platform:"+p] {
+					continue
+				}
 				for _, f := range manifest.Files {
 					if strings.HasSuffix(f.Path, ".js") {
 						t := Target{f.Path, f.SHA256, scriptName(f.Path)}
 						key := p + f.Path + f.SHA256
-						if !r.Done[key] {
+						if !r.Done[key] && t != plan.Targets[p] {
 							r.Queue = append(r.Queue, scanItem{p, t})
 						}
 					}
@@ -460,8 +455,19 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			})
 		}
 		if len(r.Queue) > 0 {
-			platform = r.Queue[0].Platform
-			full = true
+			for _, item := range r.Queue {
+				// Wait for the incumbent recheck before spending resources on its alternatives.
+				if r.Platforms[item.Platform].FailedChecks == 1 {
+					continue
+				}
+				if platform == "" || r.Platforms[item.Platform].FailedChecks >= 2 {
+					platform = item.Platform
+					full = true
+				}
+				if r.Platforms[item.Platform].FailedChecks >= 2 {
+					break
+				}
+			}
 		}
 	}
 	if platform == "" {
@@ -485,32 +491,29 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		status.DecisionReason = "insufficient_samples"
 		status.NextCheck = now.Add(a.Options.WatchInterval)
 		if full {
-			for len(r.Queue) > 0 && r.Queue[0].Platform == platform {
-				r.Queue = r.Queue[1:]
-			}
+			r.dropPlatform(platform)
 		}
 		return a.save(r)
 	}
-	slots := int((89 * time.Minute) / (time.Duration(n) * sourcecheck.TaskTimeout))
-	if slots > 8 {
-		slots = 8
-	}
-	if t := plan.Targets[platform]; t.SHA256 != "" {
-		slots--
-	}
+	// One candidate per discovery batch lets initial selection stop early.
 	if full {
-		for len(r.Queue) > 0 && r.Queue[0].Platform == platform && len(candidates) < slots {
-			item := r.Queue[0]
-			r.ActiveItems = append(r.ActiveItems, item)
-			r.Queue = r.Queue[1:]
-			r.Done[item.Platform+item.Target.Path+item.Target.SHA256] = true
-			if item.Target != plan.Targets[platform] {
-				candidates = append(candidates, item.Target)
+		remaining := make([]scanItem, 0, len(r.Queue))
+		for _, item := range r.Queue {
+			if item.Platform == platform && len(r.ActiveItems) == 0 {
+				r.ActiveItems = append(r.ActiveItems, item)
+				r.Done[item.Platform+item.Target.Path+item.Target.SHA256] = true
+				if item.Target != plan.Targets[platform] {
+					candidates = append(candidates, item.Target)
+				}
+			} else {
+				remaining = append(remaining, item)
 			}
 		}
+		r.Queue = remaining
 	}
 	selections := []sourcecheck.ScriptSelection{}
-	if t := plan.Targets[platform]; t.SHA256 != "" {
+	// Healthy incumbents need no repeated reads during low-frequency discovery.
+	if t := plan.Targets[platform]; t.SHA256 != "" && (!full || r.Platforms[platform].FailedChecks >= 2) {
 		selections = append(selections, sourcecheck.ScriptSelection{Path: t.Path, SHA256: t.SHA256, Archived: true})
 	}
 	for _, t := range candidates {
@@ -519,6 +522,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		}
 	}
 	if len(selections) == 0 {
+		r.ActiveItems = nil
 		return a.save(r)
 	}
 	budget := time.Duration(n*len(selections))*sourcecheck.TaskTimeout + time.Minute
@@ -588,9 +592,9 @@ func (a *Automatic) Status(ctx context.Context, private bool) (map[string]any, e
 	platforms := map[string]any{}
 	for _, platform := range []string{"qq", "netease"} {
 		status := r.Platforms[platform]
-		status.Stale = status.Evidence == nil || now.Before(status.Evidence.CheckedAt) || now.Sub(status.Evidence.CheckedAt) > a.Options.Policy.MaxAge
+		status.Stale = status.Evidence != nil && (now.Before(status.Evidence.CheckedAt) || now.Sub(status.Evidence.CheckedAt) > a.Options.Policy.MaxAge)
 		if p.Targets[platform].SHA256 != status.TargetSHA256 {
-			status = &PlatformStatus{TargetSHA256: p.Targets[platform].SHA256, Health: "unavailable", Stale: true, DecisionReason: "awaiting_check"}
+			status = &PlatformStatus{TargetSHA256: p.Targets[platform].SHA256, Health: "unavailable", Stale: false, DecisionReason: "awaiting_check", NextCheck: status.NextCheck}
 		}
 		if private {
 			platforms[platform] = status
@@ -639,4 +643,24 @@ func (r *AutomaticRuntime) requeueActive() {
 		delete(r.Done, item.Platform+item.Target.Path+item.Target.SHA256)
 	}
 	r.ActiveItems = nil
+}
+
+func (r *AutomaticRuntime) dropPlatform(platform string) {
+	// Catalog refreshes must not re-enqueue a platform already settled in this search.
+	r.Done["platform:"+platform] = true
+	kept := make([]scanItem, 0, len(r.Queue))
+	for _, item := range r.Queue {
+		if item.Platform != platform {
+			kept = append(kept, item)
+		}
+	}
+	r.Queue = kept
+}
+func (r *AutomaticRuntime) hasPlatform(platform string) bool {
+	for _, item := range r.Queue {
+		if item.Platform == platform {
+			return true
+		}
+	}
+	return false
 }

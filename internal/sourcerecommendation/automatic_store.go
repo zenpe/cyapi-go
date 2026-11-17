@@ -51,7 +51,8 @@ type Decision struct {
 	Actor          string        `json:"actor"`
 	Reason         string        `json:"reason"`
 	Policy         string        `json:"policy"`
-	Confirmation   *Confirmation `json:"confirmation,omitempty"`
+	Confirmation   *Confirmation `json:"confirmation,omitempty"` // Historical v1 decisions only.
+	Evidence       *Evidence     `json:"evidence,omitempty"`
 }
 type ControlInput struct {
 	ExpectedPlanID   string `json:"expectedPlanId"`
@@ -216,7 +217,11 @@ func (s *Store) commitPlan(st AutomaticState, p Plan, d Decision) (AutomaticStat
 	e = saveJSON(s.autoPath("state.json"), st)
 	return st, e
 }
-func (s *Store) AutomaticPublish(ctx context.Context, expected AutomaticState, platform string, c Confirmation, p Policy, now time.Time, enabled bool) (AutomaticState, error) {
+
+// AutomaticPublish publishes one freshly checked, eligible source. Scheduling
+// decides when replacement is permitted; publication revalidates immutable
+// evidence, the current target, catalog, samples and administrative control.
+func (s *Store) AutomaticPublish(ctx context.Context, expected AutomaticState, platform string, candidate Evidence, currentHash string, p Policy, now time.Time, enabled bool) (AutomaticState, error) {
 	unlock, e := s.lock(ctx)
 	if e != nil {
 		return AutomaticState{}, e
@@ -226,7 +231,7 @@ func (s *Store) AutomaticPublish(ctx context.Context, expected AutomaticState, p
 	if e != nil {
 		return st, e
 	}
-	if !enabled || st.Paused || st.ControlRevision != expected.ControlRevision {
+	if !enabled || st.Paused || st.ControlRevision != expected.ControlRevision || st.CurrentPlanID != expected.CurrentPlanID {
 		return st, ErrConflict
 	}
 	plan := Plan{Targets: map[string]Target{}}
@@ -236,25 +241,47 @@ func (s *Store) AutomaticPublish(ctx context.Context, expected AutomaticState, p
 			return st, e
 		}
 	}
-	if plan.Targets[platform].SHA256 != c.CurrentHash || len(c.Rounds) < p.Rounds || c.Fingerprint != p.Fingerprint()+c.Rounds[0].SampleVersion+c.Rounds[0].ProbeVersion+platform || now.Before(c.LastAt) || now.Sub(c.FirstAt) > p.MaxAge {
+	if plan.Targets[platform].SHA256 != currentHash || candidate.Platform != platform || candidate.P < p.MinPositive || candidate.N < p.MinSamples || now.Before(candidate.CheckedAt) || now.Sub(candidate.StartedAt) > p.MaxAge {
 		return st, ErrConflict
 	}
 	if s.Checks == nil || s.Sources == nil {
 		return st, ErrUnavailable
 	}
-	// Lock order: recommendation publication -> catalog -> samples. These locks
-	// cover only verified file reads and atomic state writes, never diagnostics.
-	e = s.Sources.WithVerifiedScript(ctx, c.Candidate.Path, c.Candidate.SHA256, MaxScriptBytes, func(script sources.VerifiedScript) error {
-		return s.Checks.WithSampleVersion(ctx, c.Rounds[0].SampleVersion, func() error {
+	report, e := s.Checks.Report(candidate.RunID)
+	if e != nil {
+		return st, e
+	}
+	observations, e := Evaluate(report, platform, p, now)
+	if e != nil {
+		return st, e
+	}
+	matched := false
+	for _, observed := range observations {
+		if observed.Target == candidate.Target && observed.P >= p.MinPositive && observed.SampleVersion == candidate.SampleVersion {
+			candidate = observed
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return st, ErrConflict
+	}
+	// Lock order: publication -> catalog -> samples; no network I/O.
+	e = s.Sources.WithVerifiedScript(ctx, candidate.Target.Path, candidate.Target.SHA256, MaxScriptBytes, func(script sources.VerifiedScript) error {
+		return s.Checks.WithSampleVersion(ctx, candidate.SampleVersion, func() error {
 			if e := ctx.Err(); e != nil {
 				return e
 			}
-			if e := atomic(filepath.Join(s.ArchiveDirectory, c.Candidate.SHA256+".js"), script.Content); e != nil {
+			if e := atomic(filepath.Join(s.ArchiveDirectory, candidate.Target.SHA256+".js"), script.Content); e != nil {
 				return e
 			}
-			plan.Targets[platform] = c.Candidate
+			plan.Targets[platform] = candidate.Target
+			reason := "initial_source_selected"
+			if currentHash != "" {
+				reason = "replaced_after_failed_recheck"
+			}
 			var err error
-			st, err = s.commitPlan(st, plan, Decision{At: now, Actor: "system", Reason: "sustained_evidence_improvement", Policy: p.Fingerprint(), Confirmation: &c})
+			st, err = s.commitPlan(st, plan, Decision{At: now, Actor: "system", Reason: reason, Policy: p.Fingerprint(), Evidence: &candidate})
 			return err
 		})
 	})

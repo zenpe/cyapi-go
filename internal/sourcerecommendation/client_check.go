@@ -66,6 +66,7 @@ func (a *Automatic) RequestClientCheck(ctx context.Context) (ClientCheckResult, 
 		r.ControlRevision = st.ControlRevision
 		for _, status := range r.Platforms {
 			status.Confirmation = nil
+			status.FailedChecks = 0
 		}
 	}
 	if err = saveJSON(a.Store.autoPath("runtime.json"), r); err != nil {
