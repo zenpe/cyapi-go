@@ -24,19 +24,20 @@ var defaultSamples []byte
 const maxReportBytes = 32 << 20
 
 type Report struct {
-	Format           int        `json:"format"`
-	RunID            string     `json:"runId"`
-	State            string     `json:"state"`
-	Generation       string     `json:"generation"`
-	ProbeVersion     string     `json:"probeVersion"`
-	SampleSetVersion string     `json:"sampleSetVersion"`
-	Samples          []Sample   `json:"samples"`
-	StartedAt        time.Time  `json:"startedAt"`
-	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
-	Planned          int        `json:"planned"`
-	Completed        int        `json:"completed"`
-	Results          []Result   `json:"results"`
-	Error            string     `json:"error,omitempty"`
+	Format             int        `json:"format"`
+	RunID              string     `json:"runId"`
+	State              string     `json:"state"`
+	Generation         string     `json:"generation"`
+	ProbeVersion       string     `json:"probeVersion"`
+	SampleSetVersion   string     `json:"sampleSetVersion"`
+	Samples            []Sample   `json:"samples"`
+	StartedAt          time.Time  `json:"startedAt"`
+	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
+	Planned            int        `json:"planned"`
+	Completed          int        `json:"completed"`
+	Results            []Result   `json:"results"`
+	Error              string     `json:"error,omitempty"`
+	CancellationReason string     `json:"cancellationReason,omitempty"`
 }
 type Runner interface {
 	Run(context.Context, Job) Result
@@ -223,8 +224,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 	for _, script := range scripts {
 		for _, sample := range enabled {
 			if ctx.Err() != nil {
-				report.State = "canceled"
-				report.Error = safe(ctx.Err())
+				markCancellation(&report, ctx)
 				break
 			}
 			index++
@@ -234,8 +234,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 			duplicates.add(report.Results, len(report.Results)-1)
 			report.Completed++
 			if ctx.Err() != nil {
-				report.State = "canceled"
-				report.Error = safe(ctx.Err())
+				markCancellation(&report, ctx)
 			}
 			if e = s.save(report); e != nil {
 				return report, e
@@ -260,6 +259,22 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 		return report, e
 	}
 	return report, ctx.Err()
+}
+
+func markCancellation(report *Report, ctx context.Context) {
+	report.State = "interrupted"
+	report.CancellationReason = "shutdown"
+	report.Error = safe(ctx.Err())
+	switch context.Cause(ctx) {
+	case errUserCanceled:
+		report.State = "canceled"
+		report.CancellationReason = "user"
+	case context.DeadlineExceeded:
+		report.State = "canceled"
+		report.CancellationReason = "timeout"
+	case errControlChanged:
+		report.CancellationReason = "control_changed"
+	}
 }
 func acquire(dir string) (func(), error) {
 	if e := os.MkdirAll(filepath.Join(dir, "runs"), 0700); e != nil {

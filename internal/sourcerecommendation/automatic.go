@@ -65,13 +65,14 @@ type AutomaticRuntime struct {
 	ResourceBytes      int64                      `json:"resourceBytes"`
 }
 type Automatic struct {
-	Store      *Store
-	Controller *sourcecheck.Controller
-	Options    AutomaticOptions
-	Metadata   sourcecheck.MetadataLoader
-	Log        *slog.Logger
-	Now        func() time.Time
-	mu         sync.Mutex
+	Store        *Store
+	Controller   *sourcecheck.Controller
+	Options      AutomaticOptions
+	Metadata     sourcecheck.MetadataLoader
+	Log          *slog.Logger
+	Now          func() time.Time
+	mu           sync.Mutex
+	metadataBusy bool
 }
 
 func (a *Automatic) now() time.Time {
@@ -151,7 +152,7 @@ func (a *Automatic) Run(ctx context.Context) {
 		explicitlyCanceled := false
 		if r.ActiveRunID != "" {
 			if report, err := a.Store.Checks.Report(r.ActiveRunID); err == nil {
-				explicitlyCanceled = report.State == "canceled" && report.Error == context.Canceled.Error()
+				explicitlyCanceled = report.State == "canceled" && report.CancellationReason == "user"
 			}
 		}
 		if !explicitlyCanceled {
@@ -215,6 +216,24 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		return e
 	}
 	now := a.now()
+	targetChanged := false
+	for _, platform := range []string{"qq", "netease"} {
+		target := plan.Targets[platform]
+		if r.Platforms[platform].TargetSHA256 != target.SHA256 {
+			r.dropPlatform(platform)
+			r.Platforms[platform] = &PlatformStatus{TargetSHA256: target.SHA256, Health: "unavailable", DecisionReason: "awaiting_check", NextCheck: now}
+			if target.SHA256 == "" {
+				delete(r.Done, "platform:"+platform)
+				r.FullDue = now
+			}
+			targetChanged = true
+		}
+	}
+	if targetChanged {
+		if err := a.save(r); err != nil {
+			return err
+		}
+	}
 	if r.ControlRevision != st.ControlRevision {
 		r.ControlRevision = st.ControlRevision
 		r.RequestedID = ""
@@ -229,7 +248,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	}
 	if !a.Options.Enabled || st.Paused {
 		if r.ActiveRunID != "" {
-			_ = a.Controller.Cancel(r.ActiveRunID)
+			_ = a.Controller.Interrupt(r.ActiveRunID)
 			r.requeueActive()
 			r.ActiveRunID = ""
 			r.ActivePlatform = ""
@@ -252,7 +271,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		for _, result := range report.Results {
 			r.ResourceBytes += int64(result.Resource.Bytes)
 		}
-		if report.State == "canceled" && report.Error == context.Canceled.Error() {
+		if report.State == "canceled" && report.CancellationReason == "user" {
 			// An explicit task cancellation ends this automatic cycle. It is
 			// neither source evidence nor a transient failure to requeue.
 			r.ActiveRunID = ""
@@ -410,7 +429,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	}
 	// Refresh one old sample at a time; metadata I/O is bounded and never becomes
 	// a script failure. Compare stable fields, not the refresh timestamp.
-	if a.Metadata != nil && !now.Before(r.MetadataDue) {
+	if a.Metadata != nil && !a.metadataBusy && !now.Before(r.MetadataDue) {
 		set, version, e := a.Store.Checks.Samples(ctx)
 		if e != nil {
 			return a.deferFailure(r, e)
@@ -419,8 +438,24 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			index := r.MetadataIndex
 			old := set.Samples[index]
 			work, cancel := context.WithTimeout(ctx, 8*time.Second)
+			a.metadataBusy = true
+			a.mu.Unlock()
 			m, err := a.Metadata(work, old.Platform, old.TrackID)
 			cancel()
+			a.mu.Lock()
+			a.metadataBusy = false
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			latestState, _, latestRuntime, loadErr := a.load()
+			if loadErr != nil {
+				return loadErr
+			}
+			if latestState.ControlRevision != st.ControlRevision || latestState.CurrentPlanID != st.CurrentPlanID || latestState.Paused {
+				return nil
+			}
+			// Preserve requests and worker changes admitted while I/O ran.
+			r = latestRuntime
 			if err == nil {
 				next, err := sourcecheck.SampleFromMetadata(old.Platform, m)
 				if err == nil {
@@ -455,6 +490,25 @@ func (a *Automatic) Tick(ctx context.Context) error {
 	var platform string
 	var candidates []Target
 	full := false
+	catalogChanged := false
+	if len(r.Queue) == 0 && now.Before(r.FullDue) && !now.Before(r.ResumeAt) {
+		needsSource := false
+		for _, p := range []string{"qq", "netease"} {
+			if plan.Targets[p].SHA256 == "" || r.Platforms[p].FailedChecks >= 2 {
+				needsSource = true
+			}
+		}
+		if needsSource {
+			// Read only the local snapshot metadata. Full verification remains
+			// at batch preparation; healthy platforms never start discovery.
+			snapshot, err := a.Store.Sources.Current()
+			if err != nil {
+				return a.deferFailure(r, err)
+			}
+			catalogChanged = r.Generation != "" && snapshot.Manifest.Generation != r.Generation
+			snapshot.Close()
+		}
+	}
 	// Normal watches inspect only the incumbent, including one scheduled recheck.
 	for _, p := range []string{"qq", "netease"} {
 		status := r.Platforms[p]
@@ -463,14 +517,16 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			break
 		}
 	}
-	if platform == "" && (!now.Before(r.FullDue) || len(r.Queue) > 0 || r.RequestedID != "") && !now.Before(r.ResumeAt) {
+	if platform == "" && (!now.Before(r.FullDue) || len(r.Queue) > 0 || r.RequestedID != "" || catalogChanged) && !now.Before(r.ResumeAt) {
 		manifest, e := a.Store.Sources.Status(ctx)
 		if e != nil {
 			return a.deferFailure(r, e)
 		}
 		if len(r.Queue) == 0 || manifest.Generation != r.Generation {
 			if len(r.Queue) == 0 {
-				r.Done = map[string]bool{}
+				if !catalogChanged {
+					r.Done = map[string]bool{}
+				}
 				r.SliceStarted = time.Time{}
 				r.FullDue = now.Add(a.Options.FullInterval)
 			}
@@ -637,7 +693,7 @@ func (a *Automatic) Status(ctx context.Context, private bool) (map[string]any, e
 		status := r.Platforms[platform]
 		status.Stale = status.Evidence != nil && (now.Before(status.Evidence.CheckedAt) || now.Sub(status.Evidence.CheckedAt) > a.Options.Policy.MaxAge)
 		if p.Targets[platform].SHA256 != status.TargetSHA256 {
-			status = &PlatformStatus{TargetSHA256: p.Targets[platform].SHA256, Health: "unavailable", Stale: false, DecisionReason: "awaiting_check", NextCheck: status.NextCheck}
+			status = &PlatformStatus{TargetSHA256: p.Targets[platform].SHA256, Health: "unavailable", Stale: false, DecisionReason: "awaiting_check", NextCheck: now}
 		}
 		if private {
 			platforms[platform] = status
@@ -673,7 +729,7 @@ func (a *Automatic) CancelOwned() {
 	defer a.mu.Unlock()
 	_, _, r, e := a.load()
 	if e == nil && r.ActiveRunID != "" {
-		_ = a.Controller.Cancel(r.ActiveRunID)
+		_ = a.Controller.Interrupt(r.ActiveRunID)
 	}
 }
 

@@ -153,7 +153,7 @@ func TestBatchCancellationAndInterruptedRecovery(t *testing.T) {
 	defer cancel()
 	svc.Runner = runnerFunc(func(ctx context.Context, j Job) Result { cancel(); return resultFor(j) })
 	report, e := svc.Run(ctx, RunOptions{})
-	if !errors.Is(e, context.Canceled) || report.State != "canceled" || report.Completed != 1 {
+	if !errors.Is(e, context.Canceled) || report.State != "interrupted" || report.CancellationReason != "shutdown" || report.Completed != 1 {
 		t.Fatalf("%+v %v", report, e)
 	}
 	b, e := os.ReadFile(filepath.Join(dir, "runs", "old-run.json"))

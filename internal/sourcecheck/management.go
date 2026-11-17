@@ -204,9 +204,12 @@ type Controller struct {
 type activeRun struct {
 	id, path, platform string
 	selection          string
-	cancel             context.CancelFunc
+	cancel             context.CancelCauseFunc
 	done               chan struct{}
 }
+
+var errUserCanceled = errors.New("source check canceled by user")
+var errControlChanged = errors.New("source check administrative control changed")
 
 func NewController(ctx context.Context, s *Service) *Controller {
 	return &Controller{service: s, ctx: ctx}
@@ -227,17 +230,18 @@ func (c *Controller) Start(ctx context.Context, o RunOptions) (string, bool, err
 	if e != nil {
 		return "", false, e
 	}
-	work, cancel := context.WithCancel(c.ctx)
+	work, cancel := context.WithCancelCause(c.ctx)
+	cancelTimeout := func() {}
 	if o.Timeout > 0 {
-		cancel()
-		work, cancel = context.WithTimeout(c.ctx, o.Timeout)
+		work, cancelTimeout = context.WithTimeout(work, o.Timeout)
 	}
 	a := &activeRun{id: p.ID(), path: o.Path, platform: o.Platform, cancel: cancel, done: make(chan struct{})}
 	a.selection = selectionIdentity(o)
 	c.active = a
 	go func() {
 		defer close(a.done)
-		defer cancel()
+		defer cancel(nil)
+		defer cancelTimeout()
 		r, e := p.Run(work)
 		if e != nil && r.RunID != "" && r.State == "running" {
 			r.State = "failed"
@@ -263,10 +267,20 @@ func selectionIdentity(o RunOptions) string {
 	return string(b)
 }
 func (c *Controller) Cancel(id string) error {
+	return c.cancelRun(id, errUserCanceled)
+}
+
+// Interrupt stops work after a control change without treating it as a user's
+// instruction to discard the automatic search queue.
+func (c *Controller) Interrupt(id string) error {
+	return c.cancelRun(id, errControlChanged)
+}
+
+func (c *Controller) cancelRun(id string, cause error) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.active != nil && c.active.id == id {
-		c.active.cancel()
+		c.active.cancel(cause)
 		return nil
 	}
 	r, e := c.service.Report(id)
@@ -291,7 +305,7 @@ func (c *Controller) Close(ctx context.Context) error {
 	c.closed = true
 	a := c.active
 	if a != nil {
-		a.cancel()
+		a.cancel(context.Canceled)
 	}
 	c.mu.Unlock()
 	if a == nil {
