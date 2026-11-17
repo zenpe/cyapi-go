@@ -382,6 +382,13 @@ func (s *Store) prune(current Release) error {
 		keep[r.ReleaseID] = true
 		referenced[r.ScriptSHA256] = true
 	}
+	automatic, _, e := s.automaticReferences()
+	if e != nil {
+		return e
+	}
+	for hash := range automatic {
+		referenced[hash] = true
+	}
 	entries, e := os.ReadDir(filepath.Join(s.Directory, "releases"))
 	if e != nil {
 		return e
@@ -432,10 +439,7 @@ func (s *Store) Backup(ctx context.Context, dest string) (map[string]string, err
 	defer unlock()
 	hashes := map[string]string{}
 	current, e := s.current()
-	if errors.Is(e, ErrUnpublished) {
-		return hashes, nil
-	}
-	if e != nil {
+	if e != nil && !errors.Is(e, ErrUnpublished) {
 		return nil, e
 	}
 	history, e := s.history()
@@ -449,9 +453,11 @@ func (s *Store) Backup(ctx context.Context, dest string) (map[string]string, err
 		hashes[rel] = digest(b)
 		return nil
 	}
-	pointer, _ := json.Marshal(map[string]any{"format": 1, "releaseId": current.ReleaseID})
-	if e = copyFile("source-recommendations/current.json", pointer); e != nil {
-		return nil, e
+	if current.ReleaseID != "" {
+		pointer, _ := json.Marshal(map[string]any{"format": 1, "releaseId": current.ReleaseID})
+		if e = copyFile("source-recommendations/current.json", pointer); e != nil {
+			return nil, e
+		}
 	}
 	seen := map[string]bool{}
 	for _, r := range history {
@@ -468,6 +474,36 @@ func (s *Store) Backup(ctx context.Context, dest string) (map[string]string, err
 			return nil, fmt.Errorf("recommendation backup archive: %w", e)
 		}
 		if e = copyFile("published/"+r.ScriptSHA256+".js", b); e != nil {
+			return nil, e
+		}
+	}
+	autoHashes, files, e := s.automaticReferences()
+	if e != nil {
+		return nil, e
+	}
+	if _, statErr := os.Stat(s.autoPath("runtime.json")); statErr == nil {
+		files = append(files, "runtime.json")
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, statErr
+	}
+	for _, rel := range files {
+		b, e := read(s.autoPath(filepath.FromSlash(rel)), 8<<20)
+		if e != nil {
+			return nil, e
+		}
+		if e = copyFile("source-recommendations/automatic/"+rel, b); e != nil {
+			return nil, e
+		}
+	}
+	for hash := range autoHashes {
+		if seen[hash] {
+			continue
+		}
+		b, e := s.archive(hash)
+		if e != nil {
+			return nil, e
+		}
+		if e = copyFile("published/"+hash+".js", b); e != nil {
 			return nil, e
 		}
 	}

@@ -77,6 +77,8 @@ Windows 后端全量测试，以及并发发布、历史保留、下载哈希、
 
 ## 多层反向代理与管理登录
 
+按平台自动检测、复核和发布的新模式见[按平台自动推荐音源](15-automatic-source-recommendations.md)；本页的旧版单脚本推荐接口继续保留。
+
 管理页面和 API 使用同一浏览器访问地址，例如 EdgeOne → Lucky → Go。即使外部 HTTPS 在后续链路变成 HTTP，也不需要为管理登录填写公网域名或启用全代理信任；更换域名后保持页面与 API 同站即可。账号仍须配置在 admin.user_ids，所有管理 API 仍校验显式 Bearer 令牌，不接受 Cookie 认证。
 
 管理接口从不返回 CORS 跨域授权头，包括出现在 server.cors_allowed_origins 中的外部站点；该白名单仅用于允许其他业务 API 的跨域读取。未授权的预检不返回许可头，且不进入业务路由。实际非预检请求仍执行各路由的认证和参数校验，不能把 CORS 当作服务端鉴权。server.trusted_proxies 继续用于真实 IP 和下载链接识别，与能否登录管理后台分离。

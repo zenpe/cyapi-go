@@ -68,6 +68,23 @@ func (s *Service) Samples(ctx context.Context) (SampleSet, string, error) {
 	return s.readSamples()
 }
 
+// WithSampleVersion keeps edits out of the final, short publication transaction.
+func (s *Service) WithSampleVersion(ctx context.Context, expected string, commit func() error) error {
+	unlock, e := stateLock(ctx, s.Directory)
+	if e != nil {
+		return e
+	}
+	defer unlock()
+	_, version, e := s.readSamples()
+	if e != nil {
+		return e
+	}
+	if version != expected {
+		return ErrConflict
+	}
+	return commit()
+}
+
 // ChangeSamples applies a checked mutation to the latest version, never to stale UI state.
 func (s *Service) ChangeSamples(ctx context.Context, version string, change func(*SampleSet) error) (SampleSet, string, error) {
 	release, e := stateLock(ctx, s.Directory)
@@ -186,6 +203,7 @@ type Controller struct {
 }
 type activeRun struct {
 	id, path, platform string
+	selection          string
 	cancel             context.CancelFunc
 	done               chan struct{}
 }
@@ -200,7 +218,7 @@ func (c *Controller) Start(ctx context.Context, o RunOptions) (string, bool, err
 		return "", false, context.Canceled
 	}
 	if c.active != nil {
-		if c.active.path == o.Path && c.active.platform == o.Platform {
+		if c.active.selection == selectionIdentity(o) {
 			return c.active.id, true, nil
 		}
 		return "", false, ErrBusy
@@ -210,7 +228,12 @@ func (c *Controller) Start(ctx context.Context, o RunOptions) (string, bool, err
 		return "", false, e
 	}
 	work, cancel := context.WithCancel(c.ctx)
+	if o.Timeout > 0 {
+		cancel()
+		work, cancel = context.WithTimeout(c.ctx, o.Timeout)
+	}
 	a := &activeRun{id: p.ID(), path: o.Path, platform: o.Platform, cancel: cancel, done: make(chan struct{})}
+	a.selection = selectionIdentity(o)
 	c.active = a
 	go func() {
 		defer close(a.done)
@@ -230,6 +253,14 @@ func (c *Controller) Start(ctx context.Context, o RunOptions) (string, bool, err
 		c.mu.Unlock()
 	}()
 	return a.id, false, nil
+}
+func selectionIdentity(o RunOptions) string {
+	b, _ := json.Marshal(struct {
+		Path, Platform, SamplesFile string
+		Selections                  []ScriptSelection
+		Timeout                     time.Duration
+	}{o.Path, o.Platform, o.SamplesFile, o.Selections, o.Timeout})
+	return string(b)
 }
 func (c *Controller) Cancel(id string) error {
 	c.mu.Lock()

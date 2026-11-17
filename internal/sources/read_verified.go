@@ -14,6 +14,25 @@ type VerifiedScript struct {
 	Content []byte
 }
 
+// WithVerifiedScript serializes the short final publication against catalog sync
+// and rollback. No network or worker execution is permitted in commit.
+func (m *Manager) WithVerifiedScript(ctx context.Context, path, hash string, limit int64, commit func(VerifiedScript) error) error {
+	lock, root, e := m.acquire()
+	if e != nil {
+		return e
+	}
+	defer root.Close()
+	defer func() { unlockFile(lock); lock.Close() }()
+	_, scripts, e := m.ReadVerifiedScripts(ctx, path, limit, limit)
+	if e != nil {
+		return e
+	}
+	if len(scripts) != 1 || scripts[0].File.SHA256 != hash {
+		return ErrUnavailable
+	}
+	return commit(scripts[0])
+}
+
 func (m *Manager) ReadVerifiedScripts(ctx context.Context, selected string, maxFile, maxTotal int64) (string, []VerifiedScript, error) {
 	if maxFile <= 0 || maxTotal < maxFile || maxTotal > 128<<20 {
 		return "", nil, errors.New("invalid script read limits")

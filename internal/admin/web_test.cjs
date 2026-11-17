@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function fixture(initialRelease, reportResponse) {
+function fixture(initialRelease, reportResponse, automaticResponse) {
   const elements = new Map(), requests = [];
   const makeElement = () => ({
     value: '', listeners: {}, children: [], classList: { toggle() {} },
@@ -28,6 +28,10 @@ function fixture(initialRelease, reportResponse) {
     location: { pathname: '/admin/source-management' },
     setTimeout() { return 1; }, clearTimeout() {}, AbortController,
     fetch: async (url, options) => {
+      if (url.includes('/source-recommendations/automatic')) {
+        if (options.method === 'POST') requests.push(JSON.parse(options.body));
+        return { ok: true, json: async () => automaticResponse };
+      }
       if (url.includes('/source-checks/runs/')) return { ok: true, json: async () => reportResponse };
       if (options.method !== 'POST') return { ok: true, json: async () => current };
       const body = JSON.parse(options.body);
@@ -43,7 +47,7 @@ function fixture(initialRelease, reportResponse) {
   // Expose closure entry points only in this VM; production exports stay unchanged.
   const script = fs.readFileSync(path.join(__dirname, 'web/app.js'), 'utf8').replace(
     /\}\)\(\);\s*$/,
-    'globalThis.review = {openPublish,loadRecommendations,healthCell,showReport};})();',
+    'globalThis.review = {openPublish,loadRecommendations,healthCell,showReport,loadAutomatic,automaticAction};})();',
   );
   vm.runInContext(script, context);
   return {
@@ -58,6 +62,28 @@ function fixture(initialRelease, reportResponse) {
     },
   };
 }
+
+test('automatic status shows progress and uses control version for pause and rollback', async () => {
+  const data = {enabled:true,paused:false,state:{currentPlanId:'p-current',previousPlanId:'p-old',controlRevision:7},
+    runtime:{completedTasks:18,resourceBytes:1048576,queue:[]},progress:{completed:2,planned:6},
+    platforms:{qq:{health:'available',nextCheck:'2026-11-17T01:00:00Z'},netease:{health:'limited',stale:true}}};
+  const f=fixture('',null,data);
+  await f.api.loadAutomatic();
+  assert.match(f.element('automatic-mode').textContent,/18 项/);
+  assert.match(f.element('automatic-mode').textContent,/1\.0 MiB/);
+  assert.match(f.element('automatic-mode').textContent,/2\/6/);
+  assert.equal(f.element('automatic-control').disabled,false);
+  await f.api.automaticAction('control',{paused:true});
+  assert.equal(f.requests[0].expectedPlanId,'p-current');
+  assert.equal(f.requests[0].expectedControlRevision,7);
+  assert.equal(f.requests[0].paused,true);
+  await f.api.automaticAction('rollback',{fromPlanId:'p-old'});
+  assert.equal(f.requests[1].fromPlanId,'p-old');
+  data.enabled=false;
+  await f.api.loadAutomatic();
+  assert.equal(f.element('automatic-control').disabled,true);
+  assert.equal(f.element('automatic-check').disabled,true);
+});
 
 for (const rollback of [false, true]) {
   test(`confirmation preserves its expected version across refresh (rollback=${rollback})`, async () => {

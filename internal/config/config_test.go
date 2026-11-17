@@ -16,6 +16,23 @@ func write(t *testing.T, body string) string {
 	}
 	return p
 }
+
+func TestAutomaticRecommendationConfiguration(t *testing.T) {
+	c, err := Load(write(t, "source_recommendation:\n  enabled: true\n  automatic:\n    enabled: true\n"))
+	if err != nil || c.Admin.Enabled || !c.SourceRecommendation.Automatic.Enabled || c.SourceRecommendation.Automatic.FullInterval != 72*time.Hour {
+		t.Fatal("automatic should run independently of admin", err)
+	}
+	for _, body := range []string{
+		"source_recommendation:\n  automatic:\n    enabled: true\n",
+		"source_recommendation:\n  automatic:\n    min_positive_samples: 4\n",
+		"source_recommendation:\n  automatic:\n    confirmation_rounds: 1\n",
+		"source_recommendation:\n  automatic:\n    evidence_max_age: 10m\n",
+	} {
+		if _, err := Load(write(t, body)); err == nil {
+			t.Fatal("invalid automatic config accepted", body)
+		}
+	}
+}
 func TestRelativePathsAndNoSecretNeeded(t *testing.T) {
 	p := write(t, "database:\n  dsn: db/main.db\n  busy_timeout: 250ms\n")
 	c, err := Load(p)

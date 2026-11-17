@@ -24,6 +24,7 @@ import (
 var assets embed.FS
 
 type Handler struct {
+	automatic             *sourcerecommendation.Automatic
 	recommendations       *sourcerecommendation.Store
 	recommendationEnabled bool
 	service               *sourcecheck.Service
@@ -70,6 +71,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	if h.recommendations != nil {
 		routes["GET /admin/source-recommendations"] = h.recommendationHistory
 		routes["POST /admin/source-recommendations"] = h.publishRecommendation
+	}
+	if h.automatic != nil {
+		h.automaticRoutes(routes)
 	}
 	for route, fn := range routes {
 		mux.HandleFunc(route, h.guard(h.authorize(fn)))

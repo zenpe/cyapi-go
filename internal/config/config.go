@@ -24,8 +24,19 @@ type Maintenance struct {
 }
 
 type SourceRecommendation struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled   bool                    `yaml:"enabled"`
+	Automatic AutomaticRecommendation `yaml:"automatic"`
 }
+type AutomaticRecommendation struct {
+	Enabled            bool          `yaml:"enabled"`
+	FullInterval       time.Duration `yaml:"full_interval"`
+	WatchInterval      time.Duration `yaml:"watch_interval"`
+	MinSamples         int           `yaml:"min_samples"`
+	MinPositiveSamples int           `yaml:"min_positive_samples"`
+	ConfirmationRounds int           `yaml:"confirmation_rounds"`
+	EvidenceMaxAge     time.Duration `yaml:"evidence_max_age"`
+}
+
 type Admin struct {
 	Enabled bool    `yaml:"enabled"`
 	UserIDs []int64 `yaml:"user_ids"`
@@ -101,6 +112,7 @@ type Providers struct {
 
 func Defaults() Config {
 	var c Config
+	c.SourceRecommendation.Automatic = AutomaticRecommendation{FullInterval: 72 * time.Hour, WatchInterval: 3 * time.Hour, MinSamples: 3, MinPositiveSamples: 2, ConfirmationRounds: 2, EvidenceMaxAge: 6 * time.Hour}
 	c.RuntimeDirectory = "data"
 	c.SecretsFile = "secrets.env"
 	c.Maintenance = Maintenance{SyncInterval: 6 * time.Hour, BackupInterval: 24 * time.Hour, BackupDirectory: "backups", BackupKeep: 7}
@@ -188,6 +200,19 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	a := c.SourceRecommendation.Automatic
+	if a.Enabled && !c.SourceRecommendation.Enabled {
+		return errors.New("source_recommendation.automatic.enabled requires source_recommendation.enabled")
+	}
+	if a.FullInterval < time.Minute || a.WatchInterval < time.Minute {
+		return errors.New("automatic full_interval and watch_interval must be at least 1m")
+	}
+	if a.MinSamples < 1 || a.MinSamples > 32 || a.MinPositiveSamples < 1 || a.MinPositiveSamples > a.MinSamples || a.ConfirmationRounds < 2 || a.ConfirmationRounds > 12 {
+		return errors.New("invalid automatic min_samples, min_positive_samples or confirmation_rounds")
+	}
+	if a.EvidenceMaxAge < time.Duration(a.ConfirmationRounds)*90*time.Minute+time.Duration(a.ConfirmationRounds-1)*10*time.Minute || a.EvidenceMaxAge > 30*24*time.Hour {
+		return errors.New("automatic evidence_max_age must fit confirmation budget and be at most 30 days")
+	}
 	seenAdmin := map[int64]bool{}
 	for _, id := range c.Admin.UserIDs {
 		if id <= 0 || seenAdmin[id] {

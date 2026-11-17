@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,15 +42,35 @@ type Runner interface {
 	Run(context.Context, Job) Result
 }
 type Service struct {
-	Directory string
-	Sources   *sources.Manager
-	Runner    Runner
+	Now              func() time.Time
+	Directory        string
+	ArchiveDirectory string
+	Sources          *sources.Manager
+	Runner           Runner
 }
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
+}
+
 type RunOptions struct {
+	Selections  []ScriptSelection
+	Timeout     time.Duration
 	Path        string
 	Platform    string
 	SamplesFile string
 	Progress    func(Result, int, int)
+}
+
+// Internal selection accepts catalog identities or a hash in the trusted archive.
+// It never accepts a caller-provided filesystem path to read.
+type ScriptSelection struct {
+	Path     string `json:"path"`
+	SHA256   string `json:"sha256"`
+	Archived bool   `json:"archived"`
 }
 
 func (s *Service) Prepare(ctx context.Context, o RunOptions) (*PreparedRun, error) {
@@ -102,7 +123,7 @@ func (s *Service) Prepare(ctx context.Context, o RunOptions) (*PreparedRun, erro
 			return nil, e
 		}
 	}
-	generation, scripts, e := s.Sources.ReadVerifiedScripts(ctx, o.Path, MaxScriptBytes, 64<<20)
+	generation, scripts, e := s.readSelection(ctx, o)
 	if e != nil {
 		return nil, e
 	}
@@ -113,12 +134,67 @@ func (s *Service) Prepare(ctx context.Context, o RunOptions) (*PreparedRun, erro
 	if _, e = rand.Read(nonce[:]); e != nil {
 		return nil, e
 	}
-	report = Report{Format: 1, RunID: strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "") + "-" + hex.EncodeToString(nonce[:]), State: "running", Generation: generation, ProbeVersion: ProbeVersion, SampleSetVersion: hash, Samples: set.Samples, StartedAt: time.Now().UTC(), Planned: len(scripts) * len(enabled), Results: []Result{}}
+	report = Report{Format: 1, RunID: strings.ReplaceAll(s.now().Format("20060102T150405.000000000"), ".", "") + "-" + hex.EncodeToString(nonce[:]), State: "running", Generation: generation, ProbeVersion: ProbeVersion, SampleSetVersion: hash, Samples: set.Samples, StartedAt: s.now(), Planned: len(scripts) * len(enabled), Results: []Result{}}
 	if e = s.save(report); e != nil {
 		return nil, e
 	}
 	owned = true
 	return &PreparedRun{service: s, report: report, scripts: scripts, samples: enabled, options: o, release: release}, nil
+}
+
+func (s *Service) readSelection(ctx context.Context, o RunOptions) (string, []sources.VerifiedScript, error) {
+	if len(o.Selections) == 0 {
+		return s.Sources.ReadVerifiedScripts(ctx, o.Path, MaxScriptBytes, 64<<20)
+	}
+	if o.Path != "" || o.SamplesFile != "" || len(o.Selections) > 64 {
+		return "", nil, ErrInvalid
+	}
+	scripts := []sources.VerifiedScript{}
+	seen := map[string]bool{}
+	generation := ""
+	var total int
+	for _, sel := range o.Selections {
+		if len(sel.SHA256) != 64 || sel.Path == "" || seen[sel.Path+sel.SHA256] {
+			return "", nil, ErrInvalid
+		}
+		seen[sel.Path+sel.SHA256] = true
+		var script sources.VerifiedScript
+		if sel.Archived {
+			rawHash, e := hex.DecodeString(sel.SHA256)
+			if e != nil || len(rawHash) != 32 || s.ArchiveDirectory == "" {
+				return "", nil, ErrInvalid
+			}
+			f, e := os.Open(filepath.Join(s.ArchiveDirectory, sel.SHA256+".js"))
+			if e != nil {
+				return "", nil, e
+			}
+			b, e := io.ReadAll(io.LimitReader(f, MaxScriptBytes+1))
+			f.Close()
+			if e != nil || len(b) == 0 || len(b) > MaxScriptBytes || digest(b) != sel.SHA256 {
+				return "", nil, ErrInvalid
+			}
+			script = sources.VerifiedScript{File: sources.File{Path: sel.Path, SHA256: sel.SHA256, Size: int64(len(b))}, Content: b}
+		} else {
+			gen, found, e := s.Sources.ReadVerifiedScripts(ctx, sel.Path, MaxScriptBytes, MaxScriptBytes)
+			if e != nil {
+				return "", nil, e
+			}
+			if len(found) != 1 || found[0].File.SHA256 != sel.SHA256 {
+				return "", nil, ErrConflict
+			}
+			if generation != "" && generation != gen {
+				return "", nil, ErrConflict
+			}
+			generation = gen
+			script = found[0]
+		}
+		total += len(script.Content)
+		if total > 64<<20 {
+			return "", nil, ErrLimit
+		}
+		scripts = append(scripts, script)
+	}
+	return generation, scripts, nil
 }
 
 type PreparedRun struct {
@@ -175,7 +251,7 @@ func (p *PreparedRun) Run(ctx context.Context) (Report, error) {
 	if report.State == "running" {
 		report.State = "completed"
 	}
-	finished := time.Now().UTC()
+	finished := s.now()
 	report.FinishedAt = &finished
 	if e = s.save(report); e != nil {
 		return report, e

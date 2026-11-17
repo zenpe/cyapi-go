@@ -9,5 +9,15 @@ database:
 sources:
   directory: "/data/sources"
   repo: "guoyue2010/lxmusic-"
+source_recommendation:
+  enabled: false
+  automatic:
+    enabled: false
+    full_interval: 72h
+    watch_interval: 3h
+    min_samples: 3
+    min_positive_samples: 2
+    confirmation_rounds: 2
+    evidence_max_age: 6h
 mail:
   sender_email: ""

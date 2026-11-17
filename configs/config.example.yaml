@@ -59,3 +59,11 @@ providers:
 
 source_recommendation:
   enabled: false
+  automatic:
+    enabled: false # Requires source_recommendation.enabled; admin is optional.
+    full_interval: 72h
+    watch_interval: 3h
+    min_samples: 3
+    min_positive_samples: 2
+    confirmation_rounds: 2
+    evidence_max_age: 6h

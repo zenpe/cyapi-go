@@ -336,7 +336,7 @@ func run(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	checks := &sourcecheck.Service{Directory: filepath.Join(c.RuntimeDirectory, "source-checks"), Sources: sourceFiles, Runner: sourcecheck.Executor{}}
+	checks := &sourcecheck.Service{Directory: filepath.Join(c.RuntimeDirectory, "source-checks"), Sources: sourceFiles, Runner: sourcecheck.Executor{}, ArchiveDirectory: filepath.Join(c.Sources.Directory, "published")}
 	recommendations := sourcerecommendation.New(filepath.Join(c.RuntimeDirectory, "source-recommendations"), c.Sources.Directory, sourceFiles, checks)
 	recommendationRoutes := func(*http.ServeMux) {}
 	sourceRoutes := sources.NewHandler(sourceFiles, log)
@@ -354,12 +354,12 @@ func run(args []string, log *slog.Logger) error {
 		musicService.RegisterExtensions(mux, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 25*time.Second) }, map[string]music.Extension{"netease": neteaseClient, "qq": qqClient, "kugou": kugouClient})
 	}
 	adminRoutes := func(*http.ServeMux) {}
-	if c.Admin.Enabled {
-
+	var controller *sourcecheck.Controller
+	if c.Admin.Enabled || c.SourceRecommendation.Automatic.Enabled {
 		if e := checks.Recover(); e != nil {
 			log.Error("source check recovery failed; reports may require repair", "error", e.Error())
 		}
-		controller := sourcecheck.NewController(ctx, checks)
+		controller = sourcecheck.NewController(ctx, checks)
 		defer func() {
 			stop, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -367,27 +367,45 @@ func run(args []string, log *slog.Logger) error {
 				log.Error("source checks shutdown incomplete", "error", e.Error())
 			}
 		}()
-		metadata := func(ctx context.Context, platform, id string) (sourcecheck.Metadata, error) {
-			var m music.Metadata
-			var e error
-			switch platform {
-			case "qq":
-				m, e = qqClient.Metadata(ctx, id)
-			case "netease":
-				m, e = neteaseClient.SampleMetadata(ctx, id)
-			default:
-				return sourcecheck.Metadata{}, sourcecheck.ErrInvalid
-			}
-			return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS, LXMetadata: m.LXMetadata}, e
-		}
-		adminRoutes = admin.New(checks, controller, sourceFiles, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 20*time.Second) }, c.Admin.UserIDs, metadata, log).WithRecommendations(recommendations, c.SourceRecommendation.Enabled).Register
 	}
+	metadata := func(ctx context.Context, platform, id string) (sourcecheck.Metadata, error) {
+		var m music.Metadata
+		var e error
+		switch platform {
+		case "qq":
+			m, e = qqClient.Metadata(ctx, id)
+		case "netease":
+			m, e = neteaseClient.SampleMetadata(ctx, id)
+		default:
+			return sourcecheck.Metadata{}, sourcecheck.ErrInvalid
+		}
+		return sourcecheck.Metadata{TrackID: m.ID, Title: m.Title, Artist: m.Artist, Album: m.Album, DurationMS: m.DurationMS, LXMetadata: m.LXMetadata}, e
+	}
+	autoConfig := c.SourceRecommendation.Automatic
+	automatic := &sourcerecommendation.Automatic{Store: recommendations, Controller: controller, Metadata: metadata, Log: log, Options: sourcerecommendation.AutomaticOptions{Enabled: autoConfig.Enabled, FullInterval: autoConfig.FullInterval, WatchInterval: autoConfig.WatchInterval, Policy: sourcerecommendation.Policy{MinSamples: autoConfig.MinSamples, MinPositive: autoConfig.MinPositiveSamples, Rounds: autoConfig.ConfirmationRounds, MaxAge: autoConfig.EvidenceMaxAge}}}
+	if c.SourceRecommendation.Enabled {
+		recommendationRoutes = func(m *http.ServeMux) {
+			recommendations.Register(m)
+			automatic.Register(m)
+			automatic.RegisterClient(m, authRoutes.Protect)
+		}
+	}
+	if c.Admin.Enabled {
+		adminRoutes = admin.New(checks, controller, sourceFiles, func(next http.HandlerFunc) http.HandlerFunc { return authRoutes.ProtectFor(next, 20*time.Second) }, c.Admin.UserIDs, metadata, log).WithRecommendations(recommendations, c.SourceRecommendation.Enabled).WithAutomatic(automatic).Register
+	}
+
 	listener, err := net.Listen("tcp", c.Server.Listen)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	if !mailer.Ready() {
 		log.Warn("mail is not configured; public registration and password recovery are unavailable")
+	}
+	if autoConfig.Enabled {
+		autoCtx, stopAuto := context.WithCancel(ctx)
+		autoDone := make(chan struct{})
+		go func() { defer close(autoDone); automatic.Run(autoCtx) }()
+		defer func() { stopAuto(); <-autoDone }()
 	}
 	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
 	waitMaintenance := startMaintenance(maintenanceCtx, c, *path, db, sourceFiles, log)
