@@ -32,7 +32,7 @@ function fixture(initialRelease, reportResponse, automaticResponse) {
         if (options.method === 'POST') requests.push(JSON.parse(options.body));
         return { ok: true, json: async () => automaticResponse };
       }
-      if (url.includes('/source-checks/runs/')) return { ok: true, json: async () => reportResponse };
+      if (url.includes('/source-checks/runs/')) return { ok: true, json: async () => typeof reportResponse==='function'?reportResponse(url):reportResponse };
       if (options.method !== 'POST') return { ok: true, json: async () => current };
       const body = JSON.parse(options.body);
       requests.push(body);
@@ -205,4 +205,18 @@ test('resource warnings stay separate from outcomes and decoding claims', async 
   await f.api.loadRecommendations();
   f.api.openPublish({name:'test',sha256:'a'.repeat(64),platforms:{qq:health}});
   assert.match(f.element('publish-health').textContent,/其中 2 项重复资源，需核对/);
+});
+
+test('platform detail follows each sample to its exact run', async () => {
+  const scriptPath='test.js',scriptSha256='hash';
+  const f=fixture('',url=>{
+    const first=url.includes('/first?');
+    const rows=['a','b'].map(sampleId=>({sampleId,scriptPath,scriptSha256,platform:'qq',resource:{status:'not_run'},reason:sampleId+(first?'1':'2')}));
+    return {report:{results:rows,samples:[]}};
+  });
+  await f.api.showReport('first',scriptPath,{platform:'qq',hash:scriptSha256,refs:[{sampleId:'a',runId:'first'},{sampleId:'b',runId:'second'}]});
+  const cards=f.element('report-results').children.filter(item=>item.className==='result-card');
+  assert.equal(cards.length,2);
+  assert.match(cards[0].textContent,/a1/);
+  assert.match(cards[1].textContent,/b2/);
 });

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,6 +44,8 @@ type Runner interface {
 	Run(context.Context, Job) Result
 }
 type Service struct {
+	// Accessed only under the exclusive check lock.
+	recovered        map[string]os.FileInfo
 	Now              func() time.Time
 	Directory        string
 	ArchiveDirectory string
@@ -339,8 +342,17 @@ func (s *Service) recoverInterrupted() error {
 	if e != nil {
 		return e
 	}
+	next := make(map[string]os.FileInfo, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		info, e := entry.Info()
+		if e != nil {
+			return e
+		}
+		if old := s.recovered[entry.Name()]; old != nil && old.Size() == info.Size() && old.ModTime().Equal(info.ModTime()) && os.SameFile(old, info) {
+			next[entry.Name()] = info
 			continue
 		}
 		f, e := os.Open(filepath.Join(s.Directory, "runs", entry.Name()))
@@ -350,13 +362,30 @@ func (s *Service) recoverInterrupted() error {
 		var r Report
 		e = decodeLimited(f, &r, maxReportBytes)
 		f.Close()
+		if e == nil && (!idPattern.MatchString(r.RunID) || entry.Name() != r.RunID+".json" || r.Format != 1) {
+			e = errors.New("invalid report identity")
+		}
 		if e != nil {
-			return fmt.Errorf("invalid existing report %s: %w", entry.Name(), e)
+			var diskError *os.PathError
+			if errors.As(e, &diskError) {
+				return e
+			}
+			path := filepath.Join(s.Directory, "runs", entry.Name())
+			unlock, err := stateLock(context.Background(), s.Directory)
+			if err != nil {
+				return err
+			}
+			err = os.Rename(path, path+".invalid-"+time.Now().UTC().Format("20060102T150405.000000000"))
+			unlock()
+			if err != nil {
+				return err
+			}
+			slog.Warn("quarantined unreadable source check report", "report", entry.Name(), "error", e)
+			continue
 		}
-		if !idPattern.MatchString(r.RunID) || entry.Name() != r.RunID+".json" || r.Format != 1 {
-			return errors.New("invalid report identity")
-		}
-		if r.State == "running" {
+		if r.State != "running" {
+			next[entry.Name()] = info
+		} else {
 			r.State = "interrupted"
 			now := time.Now().UTC()
 			r.FinishedAt = &now
@@ -366,6 +395,7 @@ func (s *Service) recoverInterrupted() error {
 			}
 		}
 	}
+	s.recovered = next
 	return nil
 }
 func (s *Service) prune() error {

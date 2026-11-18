@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -100,6 +101,49 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 	if _, ok := overview.Sources[0].Platforms["netease"]; ok {
 		t.Fatal("old report contaminated current overview")
 	}
+	// A result outside the history list must still contribute its exact evidence.
+	for i := 0; i < 21; i++ {
+		extra := old
+		extra.RunID = fmt.Sprintf("z-report-%02d", i)
+		write(filepath.Join(svc.Directory, "runs", extra.RunID+".json"), extra)
+	}
+	newest := report
+	newest.RunID = "zz-latest"
+	newest.Results = report.Results[:1]
+	latestPath := filepath.Join(svc.Directory, "runs", newest.RunID+".json")
+	write(latestPath, newest)
+	check := func(want string) {
+		w := httptest.NewRecorder()
+		h.overview(w, httptest.NewRequest("GET", "/admin/source-checks/overview", nil))
+		if err := json.Unmarshal(w.Body.Bytes(), &overview); err != nil {
+			t.Fatal(err)
+		}
+		refs := overview.Sources[0].Platforms["qq"].Evidence
+		if len(overview.Runs) != 20 || len(refs) != 7 {
+			t.Fatalf("history %d, refs %v", len(overview.Runs), refs)
+		}
+		for _, ref := range refs {
+			if ref.SampleID == "policy" && ref.RunID != want {
+				t.Fatalf("wrong report %v", ref)
+			}
+		}
+	}
+	check(newest.RunID)
+	cached := h.reports.entries[report.RunID]
+	check(newest.RunID)
+	if h.reports.entries[report.RunID] != cached {
+		t.Fatal("unchanged report decoded again")
+	}
+	newest.Results = nil
+	write(latestPath, newest)
+	check(report.RunID)
+	if err := os.Remove(latestPath); err != nil {
+		t.Fatal(err)
+	}
+	check(report.RunID)
+	if h.reports.entries[newest.RunID] != nil {
+		t.Fatal("deleted report retained")
+	}
 	r := httptest.NewRequest("GET", "/admin/source-checks/runs/old-results", nil)
 	r.SetPathValue("id", "old-results")
 	w = httptest.NewRecorder()
@@ -113,5 +157,31 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 	}
 	if response.Report.ProbeVersion != "goja-probe-v1" || response.CurrentProbeVersion != sourcecheck.ProbeVersion {
 		t.Fatalf("%+v", response)
+	}
+	report.Results = nil
+	for i := 0; i < 168; i++ {
+		x := old.Results[0]
+		if i >= 6 {
+			x.ScriptPath = "another.js"
+		}
+		report.Results = append(report.Results, x)
+	}
+	report.Completed, report.Planned = 168, 168
+	write(filepath.Join(svc.Directory, "runs", report.RunID+".json"), report)
+	for _, tc := range []struct {
+		query string
+		count int
+	}{{"", 168}, {"?path=test.js", 6}, {"?path=missing.js", 0}} {
+		r = httptest.NewRequest("GET", "/admin/source-checks/runs/new-results"+tc.query, nil)
+		r.SetPathValue("id", report.RunID)
+		w = httptest.NewRecorder()
+		h.report(w, r)
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || len(response.Report.Results) != tc.count || response.Report.Completed != 168 {
+			t.Fatalf("unexpected report for %q", tc.query)
+		}
+		t.Logf("%s: %d results, %d bytes", tc.query, tc.count, w.Body.Len())
 	}
 }

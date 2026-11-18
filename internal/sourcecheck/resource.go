@@ -107,18 +107,19 @@ func readResource(body io.Reader, account func(int) error, contentType string) (
 	var data bytes.Buffer
 	chunk := make([]byte, 64<<10)
 	for data.Len() < maxBytes {
-		n, err := io.ReadFull(body, chunk[:min(len(chunk), maxBytes-data.Len())])
+		// ReadFull conflates a clean final partial chunk with a truncated HTTP body.
+		n, err := body.Read(chunk[:min(len(chunk)-data.Len()%len(chunk), maxBytes-data.Len())])
 		data.Write(chunk[:n])
 		if budgetErr := account(n); budgetErr != nil {
 			return data.Bytes(), "read_error", budgetErr
 		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF {
 			return data.Bytes(), "eof", nil
 		}
 		if err != nil {
 			return data.Bytes(), "read_error", err
 		}
-		if nonAudioPrefix(data.Bytes(), contentType) {
+		if data.Len()%len(chunk) == 0 && nonAudioPrefix(data.Bytes(), contentType) {
 			return data.Bytes(), "non_audio_response", nil
 		}
 	}

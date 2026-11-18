@@ -24,6 +24,7 @@ import (
 var assets embed.FS
 
 type Handler struct {
+	reports               reportCache
 	automatic             *sourcerecommendation.Automatic
 	recommendations       *sourcerecommendation.Store
 	recommendationEnabled bool
@@ -347,6 +348,15 @@ func (h *Handler) report(w http.ResponseWriter, r *http.Request) {
 		h.failure(w, e)
 		return
 	}
+	if path := r.URL.Query().Get("path"); path != "" {
+		results := report.Results[:0]
+		for _, result := range report.Results {
+			if result.ScriptPath == path {
+				results = append(results, result)
+			}
+		}
+		report.Results = results
+	}
 	reply(w, 200, map[string]any{"report": report, "currentProbeVersion": sourcecheck.ProbeVersion})
 }
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +367,12 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	reply(w, 200, map[string]any{"message": "取消请求已受理"})
 }
 
+type evidenceRef struct {
+	RunID    string `json:"runId"`
+	SampleID string `json:"sampleId"`
+}
 type platformHealth struct {
+	Evidence                                                                                             []evidenceRef
 	Recognized, Short, Failed, Unverified, Unsupported, Canceled, Limited, Duplicate, SuspectedEncrypted int
 	CheckedAt                                                                                            time.Time
 	RunID                                                                                                string
@@ -377,7 +392,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		h.failure(w, e)
 		return
 	}
-	reports, e := h.service.Reports(20)
+	reports, e := h.reports.summaries(r.Context(), h.service)
 	if e != nil {
 		h.failure(w, e)
 		return
@@ -406,7 +421,9 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	seen := map[string]bool{}
 	history := []sourcecheck.RunSummary{}
 	for _, report := range reports {
-		history = append(history, sourcecheck.RunSummary{RunID: report.RunID, State: report.State, StartedAt: report.StartedAt, Completed: report.Completed, Planned: report.Planned, Error: report.Error})
+		if len(history) < 20 {
+			history = append(history, report.RunSummary)
+		}
 		if report.SampleSetVersion != sampleVersion || report.ProbeVersion != sourcecheck.ProbeVersion {
 			continue
 		}
@@ -426,14 +443,15 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 				health.CheckedAt = x.CheckedAt
 			}
 			health.Stale = time.Since(health.CheckedAt) > 24*time.Hour
-			if x.Resource.ReasonCode == "suspected_encrypted_resource" {
+			health.Evidence = append(health.Evidence, evidenceRef{RunID: report.RunID, SampleID: x.SampleID})
+			if x.Encrypted {
 				health.SuspectedEncrypted++
 			}
-			if len(x.Resource.DuplicateSampleIDs) > 0 {
+			if x.Duplicate {
 				health.Duplicate++
 			}
-			category := sourcecheck.ClassifyResult(x)
-			if category == sourcecheck.OutcomeFailed && sourcecheck.ProbeLimited(x) {
+			category := x.Category
+			if category == sourcecheck.OutcomeFailed && x.Limited {
 				health.Limited++
 			}
 			switch category {

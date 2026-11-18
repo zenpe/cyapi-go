@@ -44,6 +44,7 @@ func (a *Automatic) RequestClientCheck(ctx context.Context) (ClientCheckResult, 
 	if err != nil {
 		return ClientCheckResult{}, err
 	}
+	r.syncControlRevision(st.ControlRevision)
 	if active := a.Controller.ActiveID(); active != "" && active != r.ActiveRunID {
 		return ClientCheckResult{Code: "busy"}, nil
 	}
@@ -60,15 +61,6 @@ func (a *Automatic) RequestClientCheck(ctx context.Context) (ClientCheckResult, 
 	}
 	r.ClientCheckPending = true
 	r.LastClientCheck = now
-	// Synchronize the revision for a request made after an earlier admin change;
-	// otherwise Tick would discard the newly admitted intent as stale.
-	if r.ControlRevision != st.ControlRevision {
-		r.ControlRevision = st.ControlRevision
-		for _, status := range r.Platforms {
-			status.Confirmation = nil
-			status.FailedChecks = 0
-		}
-	}
 	if err = saveJSON(a.Store.autoPath("runtime.json"), r); err != nil {
 		return ClientCheckResult{}, err
 	}

@@ -195,7 +195,7 @@ func TestSystemdQuoting(t *testing.T) {
 }
 
 func TestUpgradeFailureBoundaries(t *testing.T) {
-	for _, failure := range []string{"backup", "migrate", "ready", "none"} {
+	for _, failure := range []string{"backup", "marker", "restart", "locked", "migrate", "ready", "none"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			os.Mkdir(filepath.Join(root, "data"), 0700)
@@ -208,12 +208,30 @@ func TestUpgradeFailureBoundaries(t *testing.T) {
 			c.RuntimeDirectory = filepath.Join(root, "data")
 			c.Maintenance.BackupDirectory = filepath.Join(root, "backups")
 			i := installation{Root: root, Binary: old, Config: filepath.Join(root, "config.yaml"), Unit: "test.service"}
+			if failure == "marker" {
+				if err := os.Mkdir(filepath.Join(root, ".cyapi-upgrade.json"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if failure == "locked" {
+				release, err := acquireLock(filepath.Join(c.RuntimeDirectory, "serve.lock"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer release()
+			}
 			var calls []string
 			ops := upgradeOps{
-				service: func(args ...string) error { calls = append(calls, strings.Join(args, " ")); return nil },
+				service: func(args ...string) error {
+					calls = append(calls, strings.Join(args, " "))
+					if failure == "restart" && args[0] == "start" {
+						return errors.New("start failed")
+					}
+					return nil
+				},
 				step: func(binary string, timeout time.Duration, args ...string) error {
 					calls = append(calls, args[0])
-					if args[0] == failure {
+					if args[0] == failure || (failure == "restart" && args[0] == "backup") {
 						return errors.New("injected failure")
 					}
 					return nil
@@ -229,8 +247,16 @@ func TestUpgradeFailureBoundaries(t *testing.T) {
 			e := executeUpgrade(i, c, staged, "digest", quietLog(), ops)
 			callString := strings.Join(calls, ",")
 			switch failure {
-			case "backup":
-				if e == nil || strings.Contains(callString, "migrate") || !strings.Contains(callString, "start test.service") {
+			case "locked":
+				if e == nil || strings.Contains(callString, "start test.service") {
+					t.Fatalf("lock conflict: %v %s", e, callString)
+				}
+			case "restart":
+				if e == nil || !strings.Contains(e.Error(), "restart failed") {
+					t.Fatalf("missing restart error: %v", e)
+				}
+			case "backup", "marker":
+				if e == nil || !strings.Contains(e.Error(), "restored and ready") || strings.Contains(callString, "migrate") || !strings.Contains(callString, "start test.service") {
 					t.Fatalf("unsafe backup failure: %v %s", e, callString)
 				}
 			case "migrate":

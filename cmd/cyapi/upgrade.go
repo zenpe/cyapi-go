@@ -114,9 +114,12 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 	if onlineTag != "" && candidateVersion != onlineTag {
 		return errors.New("downloaded binary version differs from release tag; service was not stopped")
 	}
-	i.Version = candidateVersion
-	return executeUpgrade(i, c, staged, digest, log, upgradeOps{
+	old := i
+	err := executeUpgrade(i, c, staged, digest, log, upgradeOps{
 		service: systemctl,
+		waitOld: func(listen string, timeout time.Duration) error {
+			return waitManagedReady(old, listen, old.Version, timeout)
+		},
 		prepare: func() error {
 			if e := prepareManagedPaths(i, c); e != nil {
 				return e
@@ -146,9 +149,18 @@ func upgradeCommand(args []string, log *slog.Logger) error {
 			return waitManagedReady(i, listen, candidateVersion, timeout)
 		},
 	})
+	if err != nil {
+		return err
+	}
+	i.Version = candidateVersion
+	if err := writeManagedInstallation(i); err != nil {
+		return fmt.Errorf("new service ready; cannot update installation version: %w", err)
+	}
+	return nil
 }
 
 type upgradeOps struct {
+	waitOld func(string, time.Duration) error
 	prepare func() error
 	service func(...string) error
 	step    func(string, time.Duration, ...string) error
@@ -160,9 +172,36 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 	if e = ops.service("stop", i.Unit); e != nil {
 		return e
 	}
+	lockPath := filepath.Join(c.RuntimeDirectory, "serve.lock")
+	restore := func(cause error) error {
+		release, err := acquireLock(lockPath)
+		if err != nil {
+			return fmt.Errorf("%w; cannot confirm instance ownership, old service restart skipped: %v", cause, err)
+		}
+		release()
+		if i.User != "" {
+			if err = securePath(lockPath, i.User, 0600); err != nil {
+				return fmt.Errorf("%w; service stopped, cannot restore lock ownership: %v", cause, err)
+			}
+		}
+		if fi, err := os.Stat(i.Binary); err != nil || !fi.Mode().IsRegular() {
+			return fmt.Errorf("%w; old binary unavailable, service stopped", cause)
+		}
+		if err := ops.service("start", i.Unit); err != nil {
+			return fmt.Errorf("%w; old service restart failed: %v", cause, err)
+		}
+		wait := ops.waitOld
+		if wait == nil {
+			wait = ops.wait
+		}
+		if err := wait(c.Server.Listen, 20*time.Second); err != nil {
+			return fmt.Errorf("%w; old service started but readiness unconfirmed: %v", cause, err)
+		}
+		return fmt.Errorf("%w; old service restored and ready", cause)
+	}
 	if ops.prepare != nil {
 		if e = ops.prepare(); e != nil {
-			return fmt.Errorf("service stopped; permission preparation failed: %w", e)
+			return restore(fmt.Errorf("upgrade preparation failed: %w", e))
 		}
 	}
 	release, e := acquireLock(filepath.Join(c.RuntimeDirectory, "serve.lock"))
@@ -171,21 +210,17 @@ func executeUpgrade(i installation, c config.Config, staged, digest string, log 
 	}
 	release()
 	if i.User != "" {
-		if e = securePath(filepath.Join(c.RuntimeDirectory, "serve.lock"), i.User, 0600); e != nil {
-			return e
+		if e = securePath(lockPath, i.User, 0600); e != nil {
+			return restore(fmt.Errorf("cannot prepare instance lock: %w", e))
 		}
 	}
 	output := filepath.Join(c.Maintenance.BackupDirectory, "upgrade-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
 	if e = ops.step(i.Binary, 30*time.Minute, "backup", "--config", i.Config, "--output", output, "--include-config"); e != nil {
-		restartErr := ops.service("start", i.Unit)
-		if restartErr != nil {
-			log.Error("old service restart failed after backup failure")
-		}
-		return errors.New("upgrade backup failed; no migration or binary replacement was attempted")
+		return restore(fmt.Errorf("upgrade backup failed before migration: %w", e))
 	}
 	fmt.Println("Recovery backup:", output)
 	if e = writeJSONFile(filepath.Join(i.Root, ".cyapi-upgrade.json"), map[string]any{"stage": "backed_up", "backup": output, "candidate_sha256": digest, "time": time.Now().UTC()}); e != nil {
-		return e
+		return restore(fmt.Errorf("recording upgrade state failed; recovery backup %s: %w", output, e))
 	}
 	// Once migration starts, never automatically restart an older program against the resulting schema.
 	if e = ops.step(staged, 2*time.Minute, "migrate", "--config", i.Config); e != nil {

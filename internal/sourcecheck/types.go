@@ -14,7 +14,7 @@ import (
 )
 
 const ProtocolVersion = 1
-const ProbeVersion = "goja-probe-v6"
+const ProbeVersion = "goja-probe-v7"
 const MaxScriptBytes = 8 << 20
 const MaxJobBytes = 12 << 20
 const TaskTimeout = 40 * time.Second

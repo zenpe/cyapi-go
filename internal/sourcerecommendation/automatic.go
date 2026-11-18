@@ -191,17 +191,17 @@ func (a *Automatic) Run(ctx context.Context) {
 	}
 }
 func (a *Automatic) deferFailure(r AutomaticRuntime, e error) error {
-	if p := r.Platforms[r.ActivePlatform]; p != nil {
-		p.NextCheck = a.now().Add(a.Options.WatchInterval)
-		p.DecisionReason = "check_failed_retry_scheduled"
-	}
-	r.requeueActive()
 	r.Failures++
 	n := r.Failures
 	if n > 4 {
 		n = 4
 	}
 	r.RetryAt = a.now().Add(time.Duration(1<<uint(n-1)) * 10 * time.Minute)
+	if p := r.Platforms[r.ActivePlatform]; p != nil && len(r.ActiveItems) == 0 {
+		p.NextCheck = r.RetryAt
+		p.DecisionReason = "check_failed_retry_scheduled"
+	}
+	r.requeueActive()
 	r.LastError = "automatic_check_failed"
 	r.ActiveRunID = ""
 	r.ActivePlatform = ""
@@ -245,15 +245,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			return err
 		}
 	}
-	if r.ControlRevision != st.ControlRevision {
-		r.ControlRevision = st.ControlRevision
-		r.RequestedID = ""
-		r.ForceFresh = map[string]bool{}
-		r.ClientCheckPending = false
-		for _, p := range r.Platforms {
-			p.Confirmation = nil
-			p.FailedChecks = 0
-		}
+	if r.syncControlRevision(st.ControlRevision) {
 		if e := a.save(r); e != nil {
 			return e
 		}
@@ -347,12 +339,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 				}
 			}
 		}
-		r.ActiveRunID = ""
-		r.ActivePlatform = ""
 		discovery := len(r.ActiveItems) > 0
-		r.ActiveItems = nil
-		r.Failures = 0
-		r.LastError = ""
 		if !r.ActiveReused {
 			r.LastCompleted = now
 		}
@@ -387,7 +374,8 @@ func (a *Automatic) Tick(ctx context.Context) error {
 				r.dropPlatform(platform)
 			default:
 				status.Health = "degraded"
-				if status.FailedChecks < 2 {
+				alreadySearching := status.FailedChecks >= 2
+				if !alreadySearching {
 					status.FailedChecks++
 				}
 				if status.FailedChecks == 1 {
@@ -395,7 +383,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 					status.NextCheck = now.Add(time.Minute)
 				} else {
 					status.DecisionReason = "searching_replacement"
-					if !discovery {
+					if !discovery && !alreadySearching {
 						r.FullDue = now
 						// Reopen this platform even if the other platform's search
 						// is still using the queue from an earlier publication.
@@ -456,15 +444,21 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			// already-expired deadline and must not restart immediately.
 			r.FullDue = now.Add(a.Options.FullInterval)
 		}
+		r.ActiveRunID, r.ActivePlatform = "", ""
+		r.ActiveItems = nil
+		r.Failures = 0
+		r.LastError = ""
 		return a.save(r)
 	}
 	if now.Before(r.RetryAt) || a.Controller.ActiveID() != "" {
 		return nil
 	}
+	dirty := false
 	// Retire legacy background discovery for published platforms. Only a
 	// confirmed failure may open replacement search; manual reports are separate.
 	for platform, target := range plan.Targets {
-		if target.SHA256 != "" && r.Platforms[platform].FailedChecks < 2 {
+		if target.SHA256 != "" && r.Platforms[platform].FailedChecks < 2 && (!r.Done["platform:"+platform] || r.hasPlatform(platform)) {
+			dirty = true
 			r.dropPlatform(platform)
 		}
 	}
@@ -537,6 +531,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			}
 			return a.save(r)
 		}
+		dirty = true
 		r.MetadataIndex = 0
 		r.MetadataDue = now.Add(6 * time.Hour)
 	}
@@ -576,6 +571,7 @@ func (a *Automatic) Tick(ctx context.Context) error {
 			return a.deferFailure(r, e)
 		}
 		if len(r.Queue) == 0 || manifest.Generation != r.Generation {
+			dirty = true
 			if len(r.Queue) == 0 {
 				if !catalogChanged {
 					r.Done = map[string]bool{}
@@ -623,6 +619,9 @@ func (a *Automatic) Tick(ctx context.Context) error {
 		}
 	}
 	if platform == "" {
+		if !dirty && r.RequestedID == "" && len(r.ForceFresh) == 0 {
+			return nil
+		}
 		r.RequestedID = ""
 		r.ForceFresh = map[string]bool{}
 		return a.save(r)
@@ -738,6 +737,7 @@ func (a *Automatic) Request(ctx context.Context, in ControlInput) (string, error
 	if st.CurrentPlanID != in.ExpectedPlanID || st.ControlRevision != in.ExpectedRevision || !a.Options.Enabled || st.Paused {
 		return "", ErrConflict
 	}
+	r.syncControlRevision(st.ControlRevision)
 	if r.RequestedID != "" {
 		return r.RequestedID, nil
 	}
@@ -807,6 +807,21 @@ func (a *Automatic) CancelOwned() {
 	if e == nil && r.ActiveRunID != "" {
 		_ = a.Controller.Interrupt(r.ActiveRunID)
 	}
+}
+
+func (r *AutomaticRuntime) syncControlRevision(revision uint64) bool {
+	if r.ControlRevision == revision {
+		return false
+	}
+	r.ControlRevision = revision
+	r.RequestedID = ""
+	r.ForceFresh = map[string]bool{}
+	r.ClientCheckPending = false
+	for _, p := range r.Platforms {
+		p.Confirmation = nil
+		p.FailedChecks = 0
+	}
+	return true
 }
 
 func (r *AutomaticRuntime) requeueActive() {
