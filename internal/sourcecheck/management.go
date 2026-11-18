@@ -16,6 +16,7 @@ import (
 
 var ErrConflict = errors.New("samples changed; reload before editing")
 var ErrNotFound = errors.New("item not found")
+var ErrReportContent = errors.New("invalid report content")
 var ErrInvalid = errors.New("invalid source check input")
 
 func stateLock(parent context.Context, dir string) (func(), error) {
@@ -135,7 +136,11 @@ func (s *Service) Report(id string) (Report, error) {
 	}
 	defer f.Close()
 	if e = decodeLimited(f, &r, maxReportBytes); e != nil {
-		return r, e
+		var diskError *os.PathError
+		if errors.As(e, &diskError) {
+			return r, e
+		}
+		return r, fmt.Errorf("%w: %w", ErrReportContent, e)
 	}
 	if r.RunID != id || r.Format != 1 {
 		return r, ErrInvalid

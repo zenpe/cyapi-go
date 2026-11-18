@@ -23,6 +23,7 @@ type reportSummary struct {
 	SampleSetVersion, ProbeVersion string
 	Results                        []sampleObservation
 	file                           os.FileInfo
+	invalid                        bool
 }
 
 type reportCache struct {
@@ -59,6 +60,11 @@ func (c *reportCache) summaries(ctx context.Context, svc *sourcecheck.Service) (
 		if summary == nil || summary.file.Size() != info.Size() || !summary.file.ModTime().Equal(info.ModTime()) || !os.SameFile(summary.file, info) {
 			r, err := svc.Report(id)
 			if errors.Is(err, sourcecheck.ErrNotFound) {
+				continue
+			}
+			if errors.Is(err, sourcecheck.ErrReportContent) || errors.Is(err, sourcecheck.ErrInvalid) {
+				next[id] = &reportSummary{file: info, invalid: true}
+				ordered = append(ordered, next[id])
 				continue
 			}
 			if err != nil {

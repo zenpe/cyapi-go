@@ -82,6 +82,7 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.overview(w, httptest.NewRequest("GET", "/admin/source-checks/overview", nil))
 	var overview struct {
+		Warning string
 		Sources []sourceRow              `json:"sources"`
 		Runs    []sourcecheck.RunSummary `json:"runs"`
 	}
@@ -130,7 +131,23 @@ func TestOverviewCountsFailuresAndSeparatesOldReports(t *testing.T) {
 	}
 	check(newest.RunID)
 	cached := h.reports.entries[report.RunID]
+	if err := os.WriteFile(latestPath, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	check(report.RunID)
+	if overview.Warning != "1 份历史报告损坏或格式无效，未计入统计" {
+		t.Fatal(overview.Warning)
+	}
+	invalid := h.reports.entries[newest.RunID]
+	check(report.RunID)
+	if invalid == nil || !invalid.invalid || h.reports.entries[newest.RunID] != invalid {
+		t.Fatal("invalid report was not cached")
+	}
+	write(latestPath, newest)
 	check(newest.RunID)
+	if overview.Warning != "" {
+		t.Fatal("warning persisted after repair", overview.Warning)
+	}
 	if h.reports.entries[report.RunID] != cached {
 		t.Fatal("unchanged report decoded again")
 	}

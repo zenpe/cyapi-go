@@ -420,7 +420,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	history := []sourcecheck.RunSummary{}
+	skipped := 0
 	for _, report := range reports {
+		if report.invalid {
+			skipped++
+			continue
+		}
 		if len(history) < 20 {
 			history = append(history, report.RunSummary)
 		}
@@ -469,6 +474,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 				health.Failed++
 			}
 		}
+	}
+	if skipped > 0 {
+		if warning != "" {
+			warning += "；"
+		}
+		warning += fmt.Sprintf("%d 份历史报告损坏或格式无效，未计入统计", skipped)
 	}
 	reply(w, 200, map[string]any{"sources": rows, "runs": history, "activeRunId": h.controller.ActiveID(), "warning": warning, "sampleVersion": sampleVersion})
 }
